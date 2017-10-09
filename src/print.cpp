@@ -29,19 +29,6 @@ void print_parens(Printer& p, const E& e) {
     }
 }
 
-inline void print_vars(Printer& p, size_t vars, const std::unordered_set<const Trait*>& traits) {
-    for (size_t i = 0; i < vars; i++) {
-        p << type_var_style(p.var_name(i));
-        if (i != vars - 1) p << ' ';
-    }
-    if (!traits.empty()) {
-        p << " with ";
-        print_list(p, ", ", traits, [&] (auto trait) {
-            p << trait->name;
-        });
-    }
-}
-
 // AST nodes -----------------------------------------------------------------------
 
 namespace ast {
@@ -50,13 +37,6 @@ void Path::print(Printer& p) const {
     print_list(p, '.', elems, [&] (auto& e) {
         p << e.id.name;
     });
-    if (!args.empty()) {
-        p << '[';
-        print_list(p, ", ", args, [&] (auto& arg) {
-            arg->print(p);
-        });
-        p << ']';
-    }
 }
 
 void TypedExpr::print(Printer& p) const {
@@ -73,20 +53,6 @@ void LiteralExpr::print(Printer& p) const {
     p << std::showpoint << literal_style(lit.box);
 }
 
-void FieldExpr::print(Printer& p) const {
-    p << id.name << " : ";
-    expr->print(p);
-}
-
-void StructExpr::print(Printer& p) const {
-    expr->print(p);
-    p << " { ";
-    print_list(p, ", ", fields, [&] (auto& f) {
-        f->print(p);
-    });
-    p << " }";
-}
-
 void TupleExpr::print(Printer& p) const {
     p << '(';
     print_list(p, ", ", args, [&] (auto& a) {
@@ -96,9 +62,8 @@ void TupleExpr::print(Printer& p) const {
 }
 
 void FnExpr::print(Printer& p) const {
-    p << keyword_style("fn") << ' ';
     print_parens(p, param);
-    p << " -> ";
+    p << " => ";
     body->print(p);
 }
 
@@ -177,25 +142,6 @@ void LiteralPtrn::print(Printer& p) const {
     p << std::showpoint << literal_style(lit.box);
 }
 
-void FieldPtrn::print(Printer& p) const {
-    if (is_etc()) {
-        p << "...";
-    } else {
-        p << id.name << " : ";
-        ptrn->print(p);
-    }
-}
-
-void StructPtrn::print(Printer& p) const {
-    path.print(p);
-
-    p << " { ";
-    print_list(p, ", ", fields, [&] (auto& field) {
-        field->print(p);
-    });
-    p << " }";
-}
-
 void TuplePtrn::print(Printer& p) const {
     p << '(';
     print_list(p, ", ", args, [&] (auto& arg) {
@@ -208,42 +154,6 @@ void ErrorPtrn::print(Printer& p) const {
     p << error_style("<invalid pattern>");
 }
 
-void TypeParam::print(Printer& p) const {
-    p << id.name;
-    if (!bounds.empty()) {
-        p << " : ";
-        print_list(p, " + ", bounds, [&] (auto& bound) {
-            bound->print(p);
-        });
-    }
-}
-
-void TypeParamList::print(Printer& p) const {
-    if (!params.empty()) {
-        p << '[';
-        print_list(p, ", ", params, [&] (auto& param) {
-            param->print(p);
-        });
-        p << ']';
-    }
-}
-
-void FieldDecl::print(Printer& p) const {
-    p << id.name << " : ";
-    type->print(p);
-}
-
-void StructDecl::print(Printer& p) const {
-    p << keyword_style("struct") << ' ' << id.name;
-    if (type_params) type_params->print(p);
-    p << " {" << p.indent();
-    print_list(p, ',', fields, [&] (auto& f) {
-        p << p.endl();
-        f->print(p);
-    });
-    p << p.unindent() << p.endl() << '}';
-}
-
 void PtrnDecl::print(Printer& p) const {
     p << id.name;
 }
@@ -251,8 +161,16 @@ void PtrnDecl::print(Printer& p) const {
 void DefDecl::print(Printer& p) const {
     p << keyword_style("def") << " ";
     ptrn->print(p);
-    p << " = ";
-    init->print(p);
+
+    if (function) {
+        auto fn = init->as<FnExpr>();
+        fn->param->print(p);
+        p << ' ';
+        fn->body->print(p);
+    } else {
+        p << " = ";
+        init->print(p);
+    }
 }
 
 void VarDecl::print(Printer& p) const {
@@ -262,34 +180,6 @@ void VarDecl::print(Printer& p) const {
         p << " = ";
         init->print(p);
     }
-}
-
-void FnDecl::print(Printer& p) const {
-    p << keyword_style("fn") << " " << id.name;
-
-    if (type_params) type_params->print(p);
-    print_parens(p, fn->param);
-
-    if (ret_type) {
-        p << " -> ";
-        ret_type->print(p);
-    }
-
-    if (fn->body) {
-        p << ' ';
-        fn->body->print(p);
-    }
-}
-
-void TraitDecl::print(Printer& p) const {
-    p << keyword_style("trait") << ' ' << id.name;
-    if (type_params) type_params->print(p);
-    p << " {" << p.indent();
-    print_list(p, p.endl(), decls, [&] (auto& decl) {
-        p << p.endl();
-        decl->print(p);
-    });
-    p << p.unindent() << p.endl() << '}';
 }
 
 void ErrorDecl::print(Printer& p) const {
@@ -314,8 +204,8 @@ void TupleType::print(Printer& p) const {
     p << ')';
 }
 
-void FunctionType::print(Printer& p) const {
-    if (from->isa<FunctionType>()) {
+void FnType::print(Printer& p) const {
+    if (from->isa<FnType>()) {
         p << '(';
         from->print(p);
         p << ')';
@@ -326,21 +216,17 @@ void FunctionType::print(Printer& p) const {
     to->print(p);
 }
 
-void TypeApp::print(Printer& p) const {
-    path.print(p);
-}
-
 void ErrorType::print(Printer& p) const {
     p << error_style("<invalid type>");
 }
 
-std::ostream& operator << (std::ostream& os, const Node* node) {
+std::ostream& operator << (std::ostream& os, const Node& node) {
     Printer p(os);
-    node->print(p);
+    node.print(p);
     return os;
 }
 
-void Node::dump() const { std::cout << this << std::endl; }
+void Node::dump() const { std::cout << *this << std::endl; }
 
 } // namespace ast
 
@@ -348,17 +234,6 @@ void Node::dump() const { std::cout << this << std::endl; }
 
 void PrimType::print(Printer& p) const {
     p << keyword_style(ast::PrimType::tag_to_string(ast::PrimType::Tag(tag)));
-}
-
-void StructType::print(Printer& p) const {
-    p << name;
-    p << " { ";
-    for (size_t i = 0, n = args.size(); i < n; i++) {
-        p << members[i] << " : ";
-        args[i]->print(p);
-        if (i != n - 1) p << ", ";
-    }
-    p << " }";
 }
 
 void TupleType::print(Printer& p) const {
@@ -369,8 +244,8 @@ void TupleType::print(Printer& p) const {
     p << ')';
 }
 
-void FunctionType::print(Printer& p) const {
-    if (from()->isa<FunctionType>()) {
+void FnType::print(Printer& p) const {
+    if (from()->isa<FnType>()) {
         p << '(';
         from()->print(p);
         p << ')';
@@ -381,33 +256,20 @@ void FunctionType::print(Printer& p) const {
     to()->print(p);
 }
 
-void PolyType::print(Printer& p) const {
-    bool body_first = body->isa<StructType>();
-    if (body_first) body->print(p);
-    p << '[';
-    print_vars(p, vars, traits);
-    p << ']';
-    if (!body_first) body->print(p);
-}
-
 void TypeVar::print(Printer& p) const {
-    p << type_var_style(p.var_name(index));
-}
-
-void UnknownType::print(Printer& p) const {
-    p << error_style("?") << number;
+    p << type_var_style(p.var_name(id));
 }
 
 void ErrorType::print(Printer& p) const {
     p << error_style("<invalid type>");
 }
 
-std::ostream& operator << (std::ostream& os, const Type* type) {
+std::ostream& operator << (std::ostream& os, const Type& type) {
     Printer p(os);
-    type->print(p);
+    type.print(p);
     return os;
 }
 
-void Type::dump() const { std::cout << this << std::endl; }
+void Type::dump() const { std::cout << *this << std::endl; }
 
 } // namespace artic

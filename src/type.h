@@ -15,7 +15,7 @@ namespace artic {
 
 class Printer;
 class TypeTable;
-class UnknownType;
+class TypeVar;
 
 /// Base class for all types.
 struct Type : public Cast<Type> {
@@ -23,30 +23,24 @@ struct Type : public Cast<Type> {
 
     /// Returns true iff this type is a tuple.
     bool is_tuple() const;
-    /// Returns the body of a polymorphic type, or the type itself if it is not polymorphic.
-    const Type* inner() const;
-    /// Returns the number of polymorphic variables in this type.
-    size_t num_vars() const;
 
-    /// Updates the rank of the unknowns contained in the type.
-    virtual void update_rank(int) const {}
     /// Returns true iff the type is nominally typed.
     virtual bool is_nominal() const { return false; }
 
     /// Applies a substitution to the inner part of this type.
     virtual const Type* substitute(TypeTable&, const std::unordered_map<const Type*, const Type*>&) const { return this; }
-    /// Fills the given set with unknowns contained in this type.
-    virtual void unknowns(std::unordered_set<const UnknownType*>&) const {}
+    /// Fills the given set with variables contained in this type.
+    virtual void variables(std::unordered_set<const TypeVar*>&) const {}
 
     /// Returns true iff the type has unknowns.
-    virtual bool has_unknowns() const { return false; }
+    virtual bool has_variables() const { return false; }
     /// Returns true iff the type has errors.
     virtual bool has_errors() const { return false; }
 
     /// Returns the set of unknowns contained in this type.
-    std::unordered_set<const UnknownType*> unknowns() const {
-        std::unordered_set<const UnknownType*> set;
-        unknowns(set);
+    std::unordered_set<const TypeVar*> variables() const {
+        std::unordered_set<const TypeVar*> set;
+        variables(set);
         return set;
     }
 
@@ -61,19 +55,7 @@ struct Type : public Cast<Type> {
     void dump() const;
 };
 
-std::ostream& operator << (std::ostream&, const Type*);
-
-/// A trait is a structure containing a set of operations that are valid for a type.
-struct Trait {
-    typedef std::unordered_map<std::string, const Type*> Members;
-
-    std::string name;
-    Members members;
-
-    Trait(std::string&& name, Members&& members)
-        : name(std::move(name)), members(std::move(members))
-    {}
-};
+std::ostream& operator << (std::ostream&, const Type&);
 
 /// Primitive type (integers/floats/...)
 struct PrimType : public Type {
@@ -111,11 +93,10 @@ struct TypeApp : public Type {
         : name(std::move(name)), args(std::move(args))
     {}
 
-    void update_rank(int rank) const override;
     const Type* substitute(TypeTable& table, const std::unordered_map<const Type*, const Type*>& map) const override;
-    void unknowns(std::unordered_set<const UnknownType*>&) const override;
+    void variables(std::unordered_set<const TypeVar*>&) const override;
 
-    bool has_unknowns() const override;
+    bool has_variables() const override;
     bool has_errors() const override;
 
     bool is_nominal() const;
@@ -124,23 +105,6 @@ struct TypeApp : public Type {
     virtual const TypeApp* rebuild(TypeTable& table, Args&& new_args) const = 0;
 
     bool equals(const Type* t) const override;
-};
-
-/// Structure type.
-struct StructType : public TypeApp {
-    typedef std::vector<std::string> Members;
-    using TypeApp::Args;
-
-    Members members;
-
-    StructType(std::string&& name, Args&& args, Members&& members)
-        : TypeApp(std::move(name), std::move(args)), members(std::move(members))
-    {}
-
-    const TypeApp* rebuild(TypeTable&, Args&&) const override;
-
-    uint32_t hash() const override;
-    void print(Printer&) const override;
 };
 
 /// Type of a tuple, made of the product of the types of its elements.
@@ -158,10 +122,10 @@ struct TupleType : public TypeApp {
 };
 
 /// Function type with domain and codomain types (multi-argument functions use tuple types for the domain).
-struct FunctionType : public TypeApp {
+struct FnType : public TypeApp {
     using TypeApp::Args;
 
-    FunctionType(const Type* from, const Type* to)
+    FnType(const Type* from, const Type* to)
         : TypeApp(Args{from, to})
     {}
 
@@ -177,81 +141,18 @@ struct FunctionType : public TypeApp {
     void print(Printer&) const override;
 };
 
-/// Polymorphic type with possibly several variables and a set of constraints.
-struct PolyType : public Type {
-    typedef std::unordered_set<const Trait*> Traits;
-
-    /// Number of type variables in this polymorphic type.
-    size_t vars;
-
-    /// Body of this polymorphic type
-    const Type* body;
-
-    /// Type traits attached to this polymorphic type.
-    Traits traits;
-
-    PolyType(size_t vars, const Type* body, Traits&& traits)
-        : vars(vars), body(body), traits(std::move(traits))
-    {}
-
-    void update_rank(int rank) const override;
-    const Type* substitute(TypeTable&, const std::unordered_map<const Type*, const Type*>&) const override;
-    void unknowns(std::unordered_set<const UnknownType*>&) const override;
-
-    bool has_unknowns() const override;
-    bool has_errors() const override;
-
-    uint32_t hash() const override;
-    bool equals(const Type* t) const override;
-    void print(Printer&) const override;
-};
-
-/// Type variable, identifiable by its (integer) index.
+/// Type variable, identifiable by a unique index
 struct TypeVar : public Type {
-    int index;
+    uint32_t id;
 
-    TypeVar(int index)
-        : index(index)
-    {}
+    TypeVar(uint32_t id) : id(id) {}
 
-    uint32_t hash() const override;
-    bool equals(const Type* t) const override;
-    void print(Printer&) const override;
-};
-
-/// Unknown type in a set of type equations.
-struct UnknownType : public Type {
-    typedef std::unordered_set<const Trait*> Traits;
-
-    /// Number that will be displayed when printing this type.
-    int number;
-
-    /// The rank corresponds to the highest scope index to which this
-    /// unknown has been bound. If the current scope index is greater
-    /// than the rank of an unknown, then the unknown cannot be generalized
-    /// at this point, because it is bound somewhere in an enclosing scope.
-    /// See "Efficient ML Type Inference Using Ranked Type Variables",
-    /// by G. Kuan and D. MacQueen
-    mutable int rank;
-
-    /// Set of traits attached to this unknown. When this unknown will
-    /// be generalized, they will be attached to the polymorphic type.
-    mutable Traits traits;
-
-    UnknownType(int number, int rank, Traits&& traits)
-        : number(number), rank(rank), traits(traits)
-    {}
-
-    void update_rank(int i) const override;
-    void unknowns(std::unordered_set<const UnknownType*>&) const override;
-
-    bool has_unknowns() const override;
+    void variables(std::unordered_set<const TypeVar*>&) const override;
+    bool has_variables() const override;
 
     uint32_t hash() const override;
     bool equals(const Type* t) const override;
     void print(Printer&) const override;
-
-    static constexpr int max_rank() { return std::numeric_limits<int>::max(); }
 };
 
 /// Type that represents type-checking/parsing errors.
@@ -284,26 +185,21 @@ private:
     typedef std::unordered_set<const Type*, HashType, CmpType> TypeSet;
 
 public:
-    TypeTable() : unknowns_(0) {}
+    TypeTable() : tid_(0) {}
     TypeTable(const TypeTable&) = delete;
 
     ~TypeTable() {
         for (auto& t : types_) delete t;
-        for (auto& u : unknowns_) delete u;
     }
 
     const PrimType*     prim_type(PrimType::Tag);
-    const StructType*   struct_type(std::string&&, StructType::Args&&, StructType::Members&&);
     const TupleType*    tuple_type(TupleType::Args&&);
     const TupleType*    unit_type();
-    const FunctionType* function_type(const Type*, const Type*);
-    const PolyType*     poly_type(size_t, const Type*, PolyType::Traits&&);
-    const TypeVar*      type_var(int);
+    const FnType*       fn_type(const Type*, const Type*);
+    const TypeVar*      type_var();
     const ErrorType*    error_type(const Loc&);
-    const UnknownType*  unknown_type(int rank = UnknownType::max_rank(), UnknownType::Traits&& traits = UnknownType::Traits());
 
     const TypeSet& types() const { return types_; }
-    const std::vector<const UnknownType*>& unknowns() const { return unknowns_; }
 
 private:
     template <typename T, typename... Args>
@@ -320,7 +216,7 @@ private:
     }
 
     TypeSet types_;
-    std::vector<const UnknownType*> unknowns_;
+    uint32_t tid_;
 };
 
 } // namespace artic

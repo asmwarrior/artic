@@ -18,20 +18,12 @@ private:
     Ptr<ast::Decl>          parse_decl();
     Ptr<ast::DefDecl>       parse_def_decl();
     Ptr<ast::VarDecl>       parse_var_decl();
-    Ptr<ast::FnDecl>        parse_fn_decl();
-    Ptr<ast::FieldDecl>     parse_field_decl();
-    Ptr<ast::StructDecl>    parse_struct_decl();
-    Ptr<ast::TraitDecl>     parse_trait_decl();
-    Ptr<ast::TypeParam>     parse_type_param(size_t);
-    Ptr<ast::TypeParamList> parse_type_params();
     Ptr<ast::ErrorDecl>     parse_error_decl();
 
     Ptr<ast::Ptrn>          parse_ptrn();
     Ptr<ast::Ptrn>          parse_typed_ptrn(Ptr<ast::Ptrn>&&);
     Ptr<ast::IdPtrn>        parse_id_ptrn(ast::Identifier&&);
     Ptr<ast::LiteralPtrn>   parse_literal_ptrn();
-    Ptr<ast::FieldPtrn>     parse_field_ptrn();
-    Ptr<ast::StructPtrn>    parse_struct_ptrn(ast::Identifier&&);
     Ptr<ast::Ptrn>          parse_tuple_ptrn();
     Ptr<ast::ErrorPtrn>     parse_error_ptrn();
 
@@ -39,12 +31,10 @@ private:
     Ptr<ast::Expr>          parse_typed_expr(Ptr<ast::Expr>&&);
     Ptr<ast::PathExpr>      parse_path_expr();
     Ptr<ast::LiteralExpr>   parse_literal_expr();
-    Ptr<ast::FieldExpr>     parse_field_expr();
-    Ptr<ast::StructExpr>    parse_struct_expr(Ptr<ast::Expr>&&);
     Ptr<ast::Expr>          parse_tuple_expr();
     Ptr<ast::BlockExpr>     parse_block_expr();
     Ptr<ast::DeclExpr>      parse_decl_expr();
-    Ptr<ast::FnExpr>        parse_fn_expr();
+    Ptr<ast::FnExpr>        parse_fn_expr(Ptr<ast::Expr>&&);
     Ptr<ast::CallExpr>      parse_call_expr(Ptr<ast::Expr>&&);
     Ptr<ast::IfExpr>        parse_if_expr();
     Ptr<ast::Expr>          parse_primary_expr();
@@ -57,8 +47,7 @@ private:
     Ptr<ast::Type>          parse_named_type();
     Ptr<ast::PrimType>      parse_prim_type(ast::PrimType::Tag);
     Ptr<ast::TupleType>     parse_tuple_type();
-    Ptr<ast::FunctionType>  parse_function_type(Ptr<ast::Type>&&);
-    Ptr<ast::TypeApp>       parse_type_app();
+    Ptr<ast::FnType>        parse_fn_type(Ptr<ast::Type>&&);
     Ptr<ast::ErrorType>     parse_error_type();
 
     ast::Path               parse_path(ast::Identifier&&);

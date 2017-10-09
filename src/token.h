@@ -15,11 +15,8 @@ namespace artic {
     f(LIT, "<literal>") \
     f(DEF, "def") \
     f(VAR, "var") \
-    f(FN,  "fn") \
     f(IF, "if") \
     f(ELSE, "else") \
-    f(STRUCT, "struct") \
-    f(TRAIT, "trait") \
     f(L_PAREN, "(") \
     f(R_PAREN, ")") \
     f(L_BRACE, "{") \
@@ -32,7 +29,7 @@ namespace artic {
     f(SEMICOLON, ";") \
     f(COLON, ":") \
     f(EQ, "=") \
-    f(ARROW, "->") \
+    f(ARROW, "=>") \
     f(INC, "++") \
     f(DEC, "--") \
     f(ADD_EQ, "+=") \

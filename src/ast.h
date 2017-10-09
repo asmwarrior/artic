@@ -45,15 +45,13 @@ struct Node : public Cast<Node> {
     /// Type assigned after type inference. Not all nodes are typeable.
     mutable const artic::Type* type;
 
-    /// Rank: index of the enclosing scope. Used during type inference
-    /// in order to generalize type variables. Assigned during name
-    /// binding. See UnknownType.
-    mutable int rank;
+    /// Depth: index of the enclosing scope.
+    mutable int depth;
 
     Node(const Loc& loc)
         : loc(loc)
         , type(nullptr)
-        , rank(artic::UnknownType::max_rank())
+        , depth(0)
     {}
 
     virtual ~Node() {}
@@ -71,7 +69,7 @@ struct Node : public Cast<Node> {
     void dump() const;
 };
 
-std::ostream& operator << (std::ostream&, const Node*);
+std::ostream& operator << (std::ostream&, const Node&);
 
 // Base AST nodes ------------------------------------------------------------------
 
@@ -115,16 +113,13 @@ struct Path : public Node {
         {}
     };
     std::vector<Elem> elems;
-    PtrVector<Type> args;
 
-    mutable std::vector<const artic::Type*> type_args;
-
-    Path(const Loc& loc, Identifier&& id, PtrVector<Type>&& args)
-        : Node(loc), elems{ Elem(std::move(id)) }, args(std::move(args))
+    Path(const Loc& loc, std::vector<Elem>&& elems)
+        : Node(loc), elems(std::move(elems))
     {}
 
-    Path(const Loc& loc, std::vector<Elem>&& elems, PtrVector<Type>&& args)
-        : Node(loc), elems(std::move(elems)), args(std::move(args))
+    Path(const Loc& loc, Identifier&& id)
+        : Path(loc, { Elem(std::move(id)) })
     {}
 
     const artic::Type* infer(TypeInference&) const override;
@@ -174,26 +169,12 @@ struct TupleType : public Type {
 };
 
 /// Function type, consisting of domain and codomain types.
-struct FunctionType : public Type {
+struct FnType : public Type {
     Ptr<Type> from;
     Ptr<Type> to;
 
-    FunctionType(const Loc& loc, Ptr<Type>&& from, Ptr<Type>&& to)
+    FnType(const Loc& loc, Ptr<Type>&& from, Ptr<Type>&& to)
         : Type(loc), from(std::move(from)), to(std::move(to))
-    {}
-
-    const artic::Type* infer(TypeInference&) const override;
-    void bind(NameBinder&) const override;
-    void check(TypeChecker&) const override;
-    void print(Printer&) const override;
-};
-
-/// A type application.
-struct TypeApp : public Type {
-    Path path;
-
-    TypeApp(const Loc& loc, Path&& path)
-        : Type(loc), path(std::move(path))
     {}
 
     const artic::Type* infer(TypeInference&) const override;
@@ -256,44 +237,6 @@ struct LiteralExpr : public Expr {
 
     LiteralExpr(const Loc& loc, const Literal& lit)
         : Expr(loc), lit(lit)
-    {}
-
-    const artic::Type* infer(TypeInference&) const override;
-    void bind(NameBinder&) const override;
-    void check(TypeChecker&) const override;
-    void print(Printer&) const override;
-};
-
-/// Field expression, part of a structure expression.
-struct FieldExpr : public Expr {
-    Identifier id;
-    Ptr<Expr> expr;
-
-    FieldExpr(const Loc& loc,
-              Identifier&& id,
-              Ptr<Expr>&& expr)
-        : Expr(loc)
-        , id(std::move(id))
-        , expr(std::move(expr))
-    {}
-
-    const artic::Type* infer(TypeInference&) const override;
-    void bind(NameBinder&) const override;
-    void check(TypeChecker&) const override;
-    void print(Printer&) const override;
-};
-
-/// Structure expression.
-struct StructExpr : public Expr {
-    Ptr<Expr> expr;
-    PtrVector<FieldExpr> fields;
-
-    StructExpr(const Loc& loc,
-               Ptr<Expr>&& expr,
-               PtrVector<FieldExpr>&& fields)
-        : Expr(loc)
-        , expr(std::move(expr))
-        , fields(std::move(fields))
     {}
 
     const artic::Type* infer(TypeInference&) const override;
@@ -502,41 +445,6 @@ struct NamedDecl : public Decl {
     {}
 };
 
-/// Type parameter, introduced by the operator [].
-struct TypeParam : public NamedDecl {
-    size_t index;
-    PtrVector<Type> bounds;
-
-    TypeParam(const Loc& loc,
-              Identifier&& id,
-              size_t index,
-              PtrVector<Type>&& bounds)
-        : NamedDecl(loc, std::move(id)), index(index), bounds(std::move(bounds))
-    {}
-
-    const artic::Type* infer(TypeInference&) const override;
-    void bind(NameBinder&) const override;
-    void check(TypeChecker&) const override;
-    void print(Printer&) const override;
-};
-
-/// Type parameter list, of the form [T : A, U : B, ...]
-struct TypeParamList : public Decl {
-    PtrVector<TypeParam> params;
-
-    TypeParamList(const Loc& loc, PtrVector<TypeParam>&& params)
-        : Decl(loc), params(std::move(params))
-    {}
-
-    /// Returns true if there are trait constraints on any of the type parameters.
-    bool has_traits() const;
-
-    const artic::Type* infer(TypeInference&) const override;
-    void bind(NameBinder&) const override;
-    void check(TypeChecker&) const override;
-    void print(Printer&) const override;
-};
-
 /// Pattern binding associated with an identifier.
 struct PtrnDecl : public NamedDecl {
     PtrnDecl(const Loc& loc, Identifier&& id)
@@ -576,90 +484,12 @@ struct VarDecl : public LocalDecl {
 
 /// Constant or function declaration.
 struct DefDecl : public LocalDecl {
-    DefDecl(const Loc& loc, Ptr<Ptrn>&& ptrn, Ptr<Expr>&& init)
-        : LocalDecl(loc, std::move(ptrn), std::move(init))
+    bool function;
+
+    DefDecl(const Loc& loc, Ptr<Ptrn>&& ptrn, Ptr<Expr>&& init, bool function = false)
+        : LocalDecl(loc, std::move(ptrn), std::move(init)), function(function)
     {}
 
-    void print(Printer&) const override;
-};
-
-/// Function declaration.
-struct FnDecl : public NamedDecl {
-    Ptr<FnExpr> fn;
-    Ptr<Type> ret_type;
-    Ptr<TypeParamList> type_params;
-
-    FnDecl(const Loc& loc,
-           Identifier&& id,
-           Ptr<FnExpr>&& fn,
-           Ptr<Type>&& ret_type,
-           Ptr<TypeParamList>&& type_params)
-        : NamedDecl(loc, std::move(id))
-        , fn(std::move(fn))
-        , ret_type(std::move(ret_type))
-        , type_params(std::move(type_params))
-    {}
-
-    const artic::Type* infer(TypeInference&) const override;
-    void bind(NameBinder&) const override;
-    void check(TypeChecker&) const override;
-    void print(Printer&) const override;
-};
-
-/// Structure field declaration.
-struct FieldDecl : public NamedDecl {
-    Ptr<Type> type;
-
-    FieldDecl(const Loc& loc,
-              Identifier&& id,
-              Ptr<Type>&& type)
-        : NamedDecl(loc, std::move(id))
-        , type(std::move(type))
-    {}
-
-    const artic::Type* infer(TypeInference&) const override;
-    void bind(NameBinder&) const override;
-    void check(TypeChecker&) const override;
-    void print(Printer&) const override;
-};
-
-/// Structure type declarations.
-struct StructDecl : public NamedDecl {
-    Ptr<TypeParamList> type_params;
-    PtrVector<FieldDecl> fields;
-
-    StructDecl(const Loc& loc,
-               Identifier&& id,
-               Ptr<TypeParamList>&& type_params,
-               PtrVector<FieldDecl>&& fields)
-        : NamedDecl(loc, std::move(id))
-        , type_params(std::move(type_params))
-        , fields(std::move(fields))
-    {}
-
-    const artic::Type* infer(TypeInference&) const override;
-    void bind(NameBinder&) const override;
-    void check(TypeChecker&) const override;
-    void print(Printer&) const override;
-};
-
-/// Trait declaration.
-struct TraitDecl : public NamedDecl {
-    PtrVector<Decl> decls;
-    Ptr<TypeParamList> type_params;
-
-    TraitDecl(const Loc& loc,
-              Identifier&& id,
-              PtrVector<Decl>&& decls,
-              Ptr<TypeParamList>&& type_params)
-        : NamedDecl(loc, std::move(id))
-        , decls(std::move(decls))
-        , type_params(std::move(type_params))
-    {}
-
-    const artic::Type* infer(TypeInference&) const override;
-    void bind(NameBinder&) const override;
-    void check(TypeChecker&) const override;
     void print(Printer&) const override;
 };
 
@@ -714,41 +544,6 @@ struct LiteralPtrn : public Ptrn {
 
     LiteralPtrn(const Loc& loc, const Literal& lit)
         : Ptrn(loc), lit(lit)
-    {}
-
-    bool is_refutable() const override;
-
-    const artic::Type* infer(TypeInference&) const override;
-    void bind(NameBinder&) const override;
-    void check(TypeChecker&) const override;
-    void print(Printer&) const override;
-};
-
-/// A pattern that matches against a structure field.
-struct FieldPtrn : public Ptrn {
-    Identifier id;
-    Ptr<Ptrn> ptrn;
-
-    FieldPtrn(const Loc& loc, Identifier&& id, Ptr<Ptrn>&& ptrn)
-        : Ptrn(loc), id(std::move(id)), ptrn(std::move(ptrn))
-    {}
-
-    bool is_refutable() const override;
-    bool is_etc() const { return !ptrn; }
-
-    const artic::Type* infer(TypeInference&) const override;
-    void bind(NameBinder&) const override;
-    void check(TypeChecker&) const override;
-    void print(Printer&) const override;
-};
-
-/// A pattern that matches against structures.
-struct StructPtrn : public Ptrn {
-    Path path;
-    PtrVector<FieldPtrn> fields;
-
-    StructPtrn(const Loc& loc, Path&& path, PtrVector<FieldPtrn>&& fields)
-        : Ptrn(loc), path(std::move(path)), fields(std::move(fields))
     {}
 
     bool is_refutable() const override;

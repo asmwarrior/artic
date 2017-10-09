@@ -16,7 +16,7 @@ void NameBinder::run(const ast::Program& program) {
 
 void NameBinder::bind(const ast::Node& node) {
     if (first_run_ && scopes_.size() > 1) return;
-    node.rank = scopes_.size();
+    node.depth = scopes_.size();
     node.bind(*this);
 }
 
@@ -43,7 +43,6 @@ void Path::bind(NameBinder& ctx) const {
         if (!elem.symbol)
             log::error(elem.id.loc, "unknown identifier '{}'", elem.id.name);
     }
-    for (auto& arg : args) ctx.bind(*arg);
 }
 
 void PrimType::bind(NameBinder&) const {}
@@ -52,13 +51,9 @@ void TupleType::bind(NameBinder& ctx) const {
     for (auto& arg : args) ctx.bind(*arg);
 }
 
-void FunctionType::bind(NameBinder& ctx) const {
+void FnType::bind(NameBinder& ctx) const {
     ctx.bind(*from);
     ctx.bind(*to);
-}
-
-void TypeApp::bind(NameBinder& ctx) const {
-    ctx.bind(path);
 }
 
 void ErrorType::bind(NameBinder&) const {}
@@ -73,15 +68,6 @@ void PathExpr::bind(NameBinder& ctx) const {
 }
 
 void LiteralExpr::bind(NameBinder&) const {}
-
-void FieldExpr::bind(NameBinder& ctx) const {
-    ctx.bind(*expr);
-}
-
-void StructExpr::bind(NameBinder& ctx) const {
-    ctx.bind(*expr);
-    for (auto& field : fields) ctx.bind(*field);
-}
 
 void TupleExpr::bind(NameBinder& ctx) const {
     for (auto& arg : args) ctx.bind(*arg);
@@ -139,28 +125,11 @@ void IdPtrn::bind(NameBinder& ctx) const {
 
 void LiteralPtrn::bind(NameBinder&) const {}
 
-void FieldPtrn::bind(NameBinder& ctx) const {
-    if (ptrn) ctx.bind(*ptrn);
-}
-
-void StructPtrn::bind(NameBinder& ctx) const {
-    ctx.bind(path);
-    for (auto& field : fields) ctx.bind(*field);
-}
-
 void TuplePtrn::bind(NameBinder& ctx) const {
     for (auto& arg : args) ctx.bind(*arg);
 }
 
 void ErrorPtrn::bind(NameBinder&) const {}
-
-void TypeParam::bind(NameBinder& ctx) const {
-    ctx.insert_symbol(*this);
-}
-
-void TypeParamList::bind(NameBinder& ctx) const {
-    for (auto& param : params) ctx.bind(*param);
-}
 
 void PtrnDecl::bind(NameBinder& ctx) const {
     ctx.insert_symbol(*this);
@@ -171,35 +140,6 @@ void LocalDecl::bind(NameBinder& ctx) const {
     ctx.push_scope();
     if (init) ctx.bind(*init);
     ctx.pop_scope();
-}
-
-void FnDecl::bind(NameBinder& ctx) const {
-    ctx.insert_symbol(*this);
-    ctx.push_scope();
-
-    if (type_params) ctx.bind(*type_params);
-    if (ret_type)    ctx.bind(*ret_type);
-
-    if (fn->body) ctx.bind(*fn);
-    else          ctx.bind(*fn->param);
-    ctx.pop_scope();
-}
-
-void FieldDecl::bind(NameBinder& ctx) const {
-    ctx.insert_symbol(*this);
-    ctx.bind(*type);
-}
-
-void StructDecl::bind(NameBinder& ctx) const {
-    ctx.insert_symbol(*this);
-    ctx.push_scope();
-    if (type_params) ctx.bind(*type_params);
-    for (auto& field : fields) ctx.bind(*field);
-    ctx.pop_scope();
-}
-
-void TraitDecl::bind(NameBinder& ctx) const {
-    ctx.insert_symbol(*this);
 }
 
 void ErrorDecl::bind(NameBinder&) const {}

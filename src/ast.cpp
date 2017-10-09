@@ -242,14 +242,6 @@ bool LiteralPtrn::is_refutable() const {
     return true;
 }
 
-bool FieldPtrn::is_refutable() const {
-    return ptrn ? ptrn->is_refutable() : false;
-}
-
-bool StructPtrn::is_refutable() const {
-    return std::any_of(fields.begin(), fields.end(), [&] (auto& field) { return field->is_refutable(); });
-}
-
 bool TuplePtrn::is_refutable() const {
     return std::any_of(args.begin(), args.end(), [&] (auto& arg) { return arg->is_refutable(); });
 }

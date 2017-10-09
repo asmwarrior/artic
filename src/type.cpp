@@ -9,28 +9,18 @@ bool Type::is_tuple() const {
     return isa<TupleType>();
 }
 
-const Type* Type::inner() const {
-    if (auto poly = isa<PolyType>()) return poly->body;
-    return this;
-}
-
-size_t Type::num_vars() const {
-    if (auto poly = isa<PolyType>()) return poly->vars;
-    return 0;
-}
-
 bool TypeApp::is_nominal() const {
     return name != "";
 }
 
-const Type* FunctionType::first_arg() const {
+const Type* FnType::first_arg() const {
     if (auto tuple_type = from()->isa<TupleType>()) {
         if (!tuple_type->args.empty()) return tuple_type->args[0];
     }
     return from();
 }
 
-size_t FunctionType::num_args() const {
+size_t FnType::num_args() const {
     if (auto tuple_type = from()->isa<TupleType>()) {
         return tuple_type->args.size();
     }
@@ -43,37 +33,16 @@ uint32_t PrimType::hash() const {
     return uint32_t(tag);
 }
 
-uint32_t StructType::hash() const {
-    return hash_combine(
-        hash_string(name),
-        hash_list(args, [] (auto& arg) { return arg->hash(); })
-    );
-}
-
 uint32_t TupleType::hash() const {
     return hash_list(args, [] (auto& arg) { return arg->hash(); });
 }
 
-uint32_t FunctionType::hash() const {
+uint32_t FnType::hash() const {
     return hash_combine(from()->hash(), to()->hash());
 }
 
-uint32_t PolyType::hash() const {
-    return hash_combine(
-        body->hash(),
-        uint32_t(vars),
-        hash_list(traits, [] (auto& t) {
-            return hash_string(t->name);
-        })
-    );
-}
-
 uint32_t TypeVar::hash() const {
-    return hash_combine(hash_init(), uint32_t(index));
-}
-
-uint32_t UnknownType::hash() const {
-    return hash_combine(hash_init(), uint32_t(number));
+    return hash_combine(hash_init(), uint32_t(id));
 }
 
 uint32_t ErrorType::hash() const {
@@ -103,20 +72,7 @@ bool TypeApp::equals(const Type* t) const {
     return false;
 }
 
-bool PolyType::equals(const Type* t) const {
-    if (auto poly = t->isa<PolyType>()) {
-        return poly->body == body &&
-               poly->vars == vars &&
-               poly->traits == traits;
-    }
-    return false;
-}
-
 bool TypeVar::equals(const Type* t) const {
-    return t->isa<TypeVar>() && t->as<TypeVar>()->index == index;
-}
-
-bool UnknownType::equals(const Type* t) const {
     return t == this;
 }
 
@@ -126,61 +82,34 @@ bool ErrorType::equals(const Type*) const {
 
 // Rebuild -------------------------------------------------------------------------
 
-const TypeApp* StructType::rebuild(TypeTable& table, Args&& new_args) const {
-    return table.struct_type(std::string(name), std::move(new_args), Members(members));
-}
-
 const TypeApp* TupleType::rebuild(TypeTable& table, Args&& new_args) const {
     return table.tuple_type(std::move(new_args));
 }
 
-const TypeApp* FunctionType::rebuild(TypeTable& table, Args&& new_args) const {
-    return table.function_type(new_args[0], new_args[1]);
+const TypeApp* FnType::rebuild(TypeTable& table, Args&& new_args) const {
+    return table.fn_type(new_args[0], new_args[1]);
 }
 
-// Update rank ---------------------------------------------------------------------
+// Variables -----------------------------------------------------------------------
 
-void TypeApp::update_rank(int rank) const {
-    for (auto arg : args)
-        arg->update_rank(rank);
+void TypeApp::variables(std::unordered_set<const TypeVar*>& v) const {
+    for (auto arg : args) arg->variables(v);
 }
 
-void PolyType::update_rank(int rank) const {
-    body->update_rank(rank);
+void TypeVar::variables(std::unordered_set<const TypeVar*>& v) const {
+    v.emplace(this);
 }
 
-void UnknownType::update_rank(int i) const {
-    rank = std::min(rank, i);
-}
+// Has variables -------------------------------------------------------------------
 
-// Unknowns ------------------------------------------------------------------------
-
-void TypeApp::unknowns(std::unordered_set<const UnknownType*>& u) const {
-    for (auto arg : args) arg->unknowns(u);
-}
-
-void PolyType::unknowns(std::unordered_set<const UnknownType*>& u) const {
-    body->unknowns(u);
-}
-
-void UnknownType::unknowns(std::unordered_set<const UnknownType*>& u) const {
-    u.emplace(this);
-}
-
-// Has unknowns --------------------------------------------------------------------
-
-bool TypeApp::has_unknowns() const {
+bool TypeApp::has_variables() const {
     for (auto arg : args) {
-        if (arg->has_unknowns()) return true;
+        if (arg->has_variables()) return true;
     }
     return false;
 }
 
-bool PolyType::has_unknowns() const {
-    return body->has_unknowns();
-}
-
-bool UnknownType::has_unknowns() const {
+bool TypeVar::has_variables() const {
     return true;
 }
 
@@ -191,10 +120,6 @@ bool TypeApp::has_errors() const {
         if (arg->has_errors()) return true;
     }
     return false;
-}
-
-bool PolyType::has_errors() const {
-    return body->has_errors();
 }
 
 bool ErrorType::has_errors() const {
@@ -217,20 +142,10 @@ const Type* TypeApp::substitute(TypeTable& table, const std::unordered_map<const
     return rebuild(table, std::move(new_args));
 }
 
-const Type* PolyType::substitute(TypeTable& table, const std::unordered_map<const Type*, const Type*>& map) const {
-    return table.poly_type(vars,
-        apply_map(map, body->substitute(table, map)),
-        std::unordered_set<const Trait*>(traits));
-}
-
 // Type table ----------------------------------------------------------------------
 
 const PrimType* TypeTable::prim_type(PrimType::Tag tag) {
     return new_type<PrimType>(tag);
-}
-
-const StructType* TypeTable::struct_type(std::string&& name, StructType::Args&& args, StructType::Members&& members) {
-    return new_type<StructType>(std::move(name), std::move(args), std::move(members));
 }
 
 const TupleType* TypeTable::tuple_type(TupleType::Args&& args) {
@@ -241,25 +156,16 @@ const TupleType* TypeTable::unit_type() {
     return new_type<TupleType>(std::vector<const Type*>{});
 }
 
-const FunctionType* TypeTable::function_type(const Type* from, const Type* to) {
-    return new_type<FunctionType>(from, to);
+const FnType* TypeTable::fn_type(const Type* from, const Type* to) {
+    return new_type<FnType>(from, to);
 }
 
-const PolyType* TypeTable::poly_type(size_t vars, const Type* body, PolyType::Traits&& traits) {
-    return new_type<PolyType>(vars, body, std::move(traits));
-}
-
-const TypeVar* TypeTable::type_var(int index) {
-    return new_type<TypeVar>(index);
+const TypeVar* TypeTable::type_var() {
+    return new_type<TypeVar>(++tid_);
 }
 
 const ErrorType* TypeTable::error_type(const Loc& loc) {
     return new_type<ErrorType>(loc);
-}
-
-const UnknownType* TypeTable::unknown_type(int rank, UnknownType::Traits&& traits) {
-    unknowns_.emplace_back(new UnknownType(unknowns_.size(), rank, std::move(traits)));
-    return unknowns_.back();
 }
 
 } // namespace artic
