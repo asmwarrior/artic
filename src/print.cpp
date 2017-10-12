@@ -165,7 +165,7 @@ void DefDecl::print(Printer& p) const {
     if (function) {
         auto fn = init->as<FnExpr>();
         fn->param->print(p);
-        p << ' ';
+        p << " = ";
         fn->body->print(p);
     } else {
         p << " = ";

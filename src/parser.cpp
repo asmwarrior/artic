@@ -42,7 +42,13 @@ Ptr<ast::DefDecl> Parser::parse_def_decl() {
     if (ptrn->isa<IdPtrn>() && ahead().tag() == Token::L_PAREN) {
         auto param = parse_tuple_ptrn();
         expect_binder("function parameter", param);
-        auto body = parse_block_expr();
+        Ptr<Expr> body;
+        if (ahead().tag() == Token::EQ) {
+            eat(Token::EQ);
+            eat_nl();
+            body = std::move(parse_expr());
+        } else
+            body = std::move(parse_block_expr());
         auto fn = make_ptr<FnExpr>(tracker(), std::move(param), std::move(body));
         return make_ptr<DefDecl>(tracker(), std::move(ptrn), std::move(fn), true);
     }
