@@ -41,6 +41,10 @@ uint32_t FnType::hash() const {
     return hash_combine(from()->hash(), to()->hash());
 }
 
+uint32_t IntrType::hash() const {
+    return hash_list(args, [] (auto& arg) { return arg->hash(); });
+}
+
 uint32_t TypeVar::hash() const {
     return hash_combine(hash_init(), uint32_t(id));
 }
@@ -72,6 +76,12 @@ bool TypeApp::equals(const Type* t) const {
     return false;
 }
 
+bool IntrType::equals(const Type* t) const {
+    if (auto intr = t->isa<IntrType>())
+        return intr->args == args;
+    return false;
+}
+
 bool TypeVar::equals(const Type* t) const {
     return t == this;
 }
@@ -96,6 +106,10 @@ void TypeApp::variables(std::unordered_set<const TypeVar*>& v) const {
     for (auto arg : args) arg->variables(v);
 }
 
+void IntrType::variables(std::unordered_set<const TypeVar*>& v) const {
+    for (auto arg : args) arg->variables(v);
+}
+
 void TypeVar::variables(std::unordered_set<const TypeVar*>& v) const {
     v.emplace(this);
 }
@@ -109,6 +123,13 @@ bool TypeApp::has_variables() const {
     return false;
 }
 
+bool IntrType::has_variables() const {
+    for (auto arg : args) {
+        if (arg->has_variables()) return true;
+    }
+    return true;
+}
+
 bool TypeVar::has_variables() const {
     return true;
 }
@@ -120,6 +141,13 @@ bool TypeApp::has_errors() const {
         if (arg->has_errors()) return true;
     }
     return false;
+}
+
+bool IntrType::has_errors() const {
+    for (auto arg : args) {
+        if (arg->has_variables()) return true;
+    }
+    return true;
 }
 
 bool ErrorType::has_errors() const {
@@ -142,6 +170,12 @@ const Type* TypeApp::substitute(TypeTable& table, const std::unordered_map<const
     return rebuild(table, std::move(new_args));
 }
 
+const Type* IntrType::substitute(TypeTable& table, const std::unordered_map<const Type*, const Type*>& map) const {
+    Args new_args;
+    for (auto arg : args) new_args.emplace(apply_map(map, arg->substitute(table, map)));
+    return table.intr_type(std::move(new_args));
+}
+
 // Type table ----------------------------------------------------------------------
 
 const PrimType* TypeTable::prim_type(PrimType::Tag tag) {
@@ -158,6 +192,10 @@ const TupleType* TypeTable::unit_type() {
 
 const FnType* TypeTable::fn_type(const Type* from, const Type* to) {
     return new_type<FnType>(from, to);
+}
+
+const IntrType* TypeTable::intr_type(IntrType::Args&& args) {
+    return new_type<IntrType>(std::move(args));
 }
 
 const TypeVar* TypeTable::type_var() {

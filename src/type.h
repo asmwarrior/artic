@@ -141,6 +141,26 @@ struct FnType : public TypeApp {
     void print(Printer&) const override;
 };
 
+/// Intersection type.
+struct IntrType : public Type {
+    typedef std::unordered_set<const Type*> Args;
+    Args args;
+
+    IntrType(Args&& args)
+        : args(std::move(args))
+    {}
+
+    const Type* substitute(TypeTable& table, const std::unordered_map<const Type*, const Type*>& map) const override;
+    void variables(std::unordered_set<const TypeVar*>&) const override;
+
+    bool has_variables() const override;
+    bool has_errors() const override;
+
+    uint32_t hash() const override;
+    bool equals(const Type* t) const override;
+    void print(Printer&) const override;
+};
+
 /// Type variable, identifiable by a unique index
 struct TypeVar : public Type {
     uint32_t id;
@@ -196,6 +216,7 @@ public:
     const TupleType*    tuple_type(TupleType::Args&&);
     const TupleType*    unit_type();
     const FnType*       fn_type(const Type*, const Type*);
+    const IntrType*     intr_type(IntrType::Args&&);
     const TypeVar*      type_var();
     const ErrorType*    error_type(const Loc&);
 

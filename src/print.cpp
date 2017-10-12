@@ -256,6 +256,12 @@ void FnType::print(Printer& p) const {
     to()->print(p);
 }
 
+void IntrType::print(Printer& p) const {
+    print_list(p, " & ", args, [&] (auto arg) {
+        arg->print(p);
+    });
+}
+
 void TypeVar::print(Printer& p) const {
     p << type_var_style(p.var_name(id));
 }
