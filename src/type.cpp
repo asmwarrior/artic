@@ -33,20 +33,20 @@ uint32_t PrimType::hash() const {
     return uint32_t(tag);
 }
 
-uint32_t TupleType::hash() const {
-    return hash_list(args, [] (auto& arg) { return arg->hash(); });
-}
-
-uint32_t FnType::hash() const {
-    return hash_combine(from()->hash(), to()->hash());
+uint32_t TypeApp::hash() const {
+    auto h = hash_init();
+    for (auto arg : args) h = hash_combine(h, arg->hash());
+    return hash_combine(h, name, uint64_t(typeid(*this).hash_code()));
 }
 
 uint32_t IntrType::hash() const {
-    return hash_list(args, [] (auto& arg) { return arg->hash(); });
+    auto h = hash_init();
+    for (auto arg : args) h = hash_combine(h, arg->hash());
+    return h;
 }
 
 uint32_t TypeVar::hash() const {
-    return hash_combine(hash_init(), uint32_t(id));
+    return uint32_t(id);
 }
 
 uint32_t ErrorType::hash() const {

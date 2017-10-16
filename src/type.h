@@ -104,6 +104,7 @@ struct TypeApp : public Type {
     /// Rebuilds this type with different arguments.
     virtual const TypeApp* rebuild(TypeTable& table, Args&& new_args) const = 0;
 
+    uint32_t hash() const override;
     bool equals(const Type* t) const override;
 };
 
@@ -116,8 +117,6 @@ struct TupleType : public TypeApp {
     {}
 
     const TypeApp* rebuild(TypeTable&, Args&&) const override;
-
-    uint32_t hash() const override;
     void print(Printer&) const override;
 };
 
@@ -136,8 +135,6 @@ struct FnType : public TypeApp {
     size_t num_args() const;
 
     const TypeApp* rebuild(TypeTable&, Args&&) const override;
-
-    uint32_t hash() const override;
     void print(Printer&) const override;
 };
 
