@@ -13,15 +13,15 @@ inline uint32_t hash_combine(uint32_t h, uint8_t d) {
 
 /// FNV: Hashes one word.
 inline uint32_t hash_combine(uint32_t h, uint16_t d) {
-    h = hash_combine(h, uint8_t( d        & 0xFF));
-    h = hash_combine(h, uint8_t((d >>  8) & 0xFF));
+    h = hash_combine(h, uint8_t(d & 0xFF));
+    h = hash_combine(h, uint8_t(d >> 8));
     return h;
 }
 
 /// FNV: Hashes one double word.
 inline uint32_t hash_combine(uint32_t h, uint32_t d) {
-    h = hash_combine(h, uint16_t( d         & 0xFFFF));
-    h = hash_combine(h, uint16_t((d >>  16) & 0xFFFF));
+    h = hash_combine(h, uint16_t(d & 0xFFFF));
+    h = hash_combine(h, uint16_t(d >> 16));
     return h;
 }
 
