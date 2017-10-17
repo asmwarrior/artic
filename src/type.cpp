@@ -9,6 +9,10 @@ bool Type::is_tuple() const {
     return isa<TupleType>();
 }
 
+uint32_t Type::kind_hash() const {
+    return hash_combine(hash_init(), uint64_t(typeid(*this).hash_code()));
+}
+
 bool TypeApp::is_nominal() const {
     return name != "";
 }
@@ -30,27 +34,31 @@ size_t FnType::num_args() const {
 // Hash ----------------------------------------------------------------------------
 
 uint32_t PrimType::hash() const {
-    return uint32_t(tag);
+    return hash_combine(kind_hash(), uint32_t(tag));
 }
 
 uint32_t TypeApp::hash() const {
-    auto h = hash_init();
+    auto h = kind_hash();
     for (auto arg : args) h = hash_combine(h, arg->hash());
-    return hash_combine(h, name, uint64_t(typeid(*this).hash_code()));
+    return hash_combine(h, name);
 }
 
 uint32_t IntrType::hash() const {
-    auto h = hash_init();
+    auto h = kind_hash();
     for (auto arg : args) h = hash_combine(h, arg->hash());
     return h;
 }
 
 uint32_t TypeVar::hash() const {
-    return uint32_t(id);
+    return hash_combine(kind_hash(), id);
+}
+
+uint32_t ExpVar::hash() const {
+    return hash_combine(kind_hash(), id, arg->hash());
 }
 
 uint32_t ErrorType::hash() const {
-    return loc.hash();
+    return hash_combine(kind_hash(), loc.hash());
 }
 
 // Equals ----------------------------------------------------------------------------
@@ -83,6 +91,10 @@ bool IntrType::equals(const Type* t) const {
 }
 
 bool TypeVar::equals(const Type* t) const {
+    return t == this;
+}
+
+bool ExpVar::equals(const Type* t) const {
     return t == this;
 }
 
@@ -200,6 +212,10 @@ const IntrType* TypeTable::intr_type(IntrType::Args&& args) {
 
 const TypeVar* TypeTable::type_var() {
     return new_type<TypeVar>(++tid_);
+}
+
+const ExpVar* TypeTable::exp_var(const Type* arg) {
+    return new_type<ExpVar>(++tid_, arg);
 }
 
 const ErrorType* TypeTable::error_type(const Loc& loc) {

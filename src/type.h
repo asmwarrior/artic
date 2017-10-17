@@ -44,6 +44,9 @@ struct Type : public Cast<Type> {
         return set;
     }
 
+    /// Returns a hash for the kind of this type.
+    uint32_t kind_hash() const;
+    
     /// Computes a hash value for the type.
     virtual uint32_t hash() const = 0;
     /// Test for structural equality with another type.
@@ -158,7 +161,7 @@ struct IntrType : public Type {
     void print(Printer&) const override;
 };
 
-/// Type variable, identifiable by a unique index
+/// Type variable, identifiable by a unique index.
 struct TypeVar : public Type {
     uint32_t id;
 
@@ -166,6 +169,19 @@ struct TypeVar : public Type {
 
     void variables(std::unordered_set<const TypeVar*>&) const override;
     bool has_variables() const override;
+
+    uint32_t hash() const override;
+    bool equals(const Type* t) const override;
+    void print(Printer&) const override;
+};
+
+/// Expansion variable.
+/// See "System E: Expansion Variables for Flexible Typing with Linear and Non-linear Types and Intersection Types"
+struct ExpVar : public Type {
+    uint32_t id;
+    const Type* arg;
+
+    ExpVar(uint32_t id, const Type* arg) : id(id), arg(arg) {}
 
     uint32_t hash() const override;
     bool equals(const Type* t) const override;
@@ -215,6 +231,7 @@ public:
     const FnType*       fn_type(const Type*, const Type*);
     const IntrType*     intr_type(IntrType::Args&&);
     const TypeVar*      type_var();
+    const ExpVar*       exp_var(const Type*);
     const ErrorType*    error_type(const Loc&);
 
     const TypeSet& types() const { return types_; }

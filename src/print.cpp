@@ -8,7 +8,7 @@ namespace artic {
 template <typename T> auto error_style(const T& t)    -> decltype(log::style(t, log::Style())) { return log::style(t, log::Style::RED);   }
 template <typename T> auto keyword_style(const T& t)  -> decltype(log::style(t, log::Style())) { return log::style(t, log::Style::GREEN); }
 template <typename T> auto literal_style(const T& t)  -> decltype(log::style(t, log::Style())) { return log::style(t, log::Style::BLUE);  }
-template <typename T> auto type_var_style(const T& t) -> decltype(log::style(t, log::Style(), log::Style())) { return log::style(t, log::Style::BOLD, log::Style::WHITE);  }
+template <typename T> auto var_style(const T& t) -> decltype(log::style(t, log::Style(), log::Style())) { return log::style(t, log::Style::BOLD, log::Style::WHITE);  }
 
 template <typename L, typename S, typename F>
 void print_list(Printer& p, const S& sep, const L& list, F f) {
@@ -263,7 +263,13 @@ void IntrType::print(Printer& p) const {
 }
 
 void TypeVar::print(Printer& p) const {
-    p << type_var_style(p.var_name(id));
+    p << var_style(p.var_name(id));
+}
+
+void ExpVar::print(Printer& p) const {
+    p << var_style(p.var_name(id)) << '[';
+    arg->print(p);
+    p << ']';
 }
 
 void ErrorType::print(Printer& p) const {
