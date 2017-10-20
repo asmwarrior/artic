@@ -114,15 +114,15 @@ const TypeApp* FnType::rebuild(TypeTable& table, Args&& new_args) const {
 
 // Variables -----------------------------------------------------------------------
 
-void TypeApp::variables(std::unordered_set<const TypeVar*>& v) const {
+void TypeApp::variables(TypeVars& v) const {
     for (auto arg : args) arg->variables(v);
 }
 
-void IntrType::variables(std::unordered_set<const TypeVar*>& v) const {
+void IntrType::variables(TypeVars& v) const {
     for (auto arg : args) arg->variables(v);
 }
 
-void TypeVar::variables(std::unordered_set<const TypeVar*>& v) const {
+void TypeVar::variables(TypeVars& v) const {
     v.emplace(this);
 }
 
@@ -168,13 +168,13 @@ bool ErrorType::has_errors() const {
 
 // Substitute ----------------------------------------------------------------------
 
-inline const Type* apply_map(const std::unordered_map<const Type*, const Type*>& map, const Type* type) {
+inline const Type* apply_map(const TypeSubst& map, const Type* type) {
     auto it = map.find(type);
     if (it != map.end()) return it->second;
     return type;
 }
 
-const Type* TypeApp::substitute(TypeTable& table, const std::unordered_map<const Type*, const Type*>& map) const {
+const Type* TypeApp::substitute(TypeTable& table, const TypeSubst& map) const {
     Args new_args(args.size());
     std::transform(args.begin(), args.end(), new_args.begin(), [&] (auto arg) {
         return apply_map(map, arg->substitute(table, map));
@@ -182,7 +182,7 @@ const Type* TypeApp::substitute(TypeTable& table, const std::unordered_map<const
     return rebuild(table, std::move(new_args));
 }
 
-const Type* IntrType::substitute(TypeTable& table, const std::unordered_map<const Type*, const Type*>& map) const {
+const Type* IntrType::substitute(TypeTable& table, const TypeSubst& map) const {
     Args new_args;
     for (auto arg : args) new_args.emplace(apply_map(map, arg->substitute(table, map)));
     return table.intr_type(std::move(new_args));

@@ -16,6 +16,10 @@ namespace artic {
 class Printer;
 class TypeTable;
 class TypeVar;
+class Type;
+
+typedef std::unordered_map<const Type*, const Type*> TypeSubst;
+typedef std::unordered_set<const TypeVar*>           TypeVars;
 
 /// Base class for all types.
 struct Type : public Cast<Type> {
@@ -28,9 +32,9 @@ struct Type : public Cast<Type> {
     virtual bool is_nominal() const { return false; }
 
     /// Applies a substitution to the inner part of this type.
-    virtual const Type* substitute(TypeTable&, const std::unordered_map<const Type*, const Type*>&) const { return this; }
+    virtual const Type* substitute(TypeTable&, const TypeSubst&) const { return this; }
     /// Fills the given set with variables contained in this type.
-    virtual void variables(std::unordered_set<const TypeVar*>&) const {}
+    virtual void variables(TypeVars&) const {}
 
     /// Returns true iff the type has unknowns.
     virtual bool has_variables() const { return false; }
@@ -38,8 +42,8 @@ struct Type : public Cast<Type> {
     virtual bool has_errors() const { return false; }
 
     /// Returns the set of unknowns contained in this type.
-    std::unordered_set<const TypeVar*> variables() const {
-        std::unordered_set<const TypeVar*> set;
+    TypeVars variables() const {
+        TypeVars set;
         variables(set);
         return set;
     }
@@ -96,8 +100,8 @@ struct TypeApp : public Type {
         : name(std::move(name)), args(std::move(args))
     {}
 
-    const Type* substitute(TypeTable& table, const std::unordered_map<const Type*, const Type*>& map) const override;
-    void variables(std::unordered_set<const TypeVar*>&) const override;
+    const Type* substitute(TypeTable& table, const TypeSubst& map) const override;
+    void variables(TypeVars&) const override;
 
     bool has_variables() const override;
     bool has_errors() const override;
@@ -150,8 +154,8 @@ struct IntrType : public Type {
         : args(std::move(args))
     {}
 
-    const Type* substitute(TypeTable& table, const std::unordered_map<const Type*, const Type*>& map) const override;
-    void variables(std::unordered_set<const TypeVar*>&) const override;
+    const Type* substitute(TypeTable& table, const TypeSubst& map) const override;
+    void variables(TypeVars&) const override;
 
     bool has_variables() const override;
     bool has_errors() const override;
@@ -167,7 +171,7 @@ struct TypeVar : public Type {
 
     TypeVar(uint32_t id) : id(id) {}
 
-    void variables(std::unordered_set<const TypeVar*>&) const override;
+    void variables(TypeVars&) const override;
     bool has_variables() const override;
 
     uint32_t hash() const override;
