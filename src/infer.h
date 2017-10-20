@@ -18,7 +18,8 @@ public:
     void run(const ast::Program&);
 
     const Type* unify(const Loc&, const Type*, const Type*);
-    const Type* join(const Loc&, const TypeVar*, const Type*);
+    const Type* instanciate(const ExpVar*);
+    const Type* join(const Loc&, const Type*, const Type*);
     const Type* find(const Type*);
 
     const Type* type(const ast::Node&);

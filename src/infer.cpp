@@ -25,6 +25,25 @@ const Type* TypeInference::unify(const Loc& loc, const Type* a, const Type* b) {
     if (var_a) return join(loc, var_a, b);
     if (var_b) return join(loc, var_b, a);
 
+    // Handle expansions
+    auto exp_a = a->isa<ExpVar>();
+    auto exp_b = b->isa<ExpVar>();
+    if (exp_a && exp_b) return join(loc, exp_a, exp_b);
+    if (exp_a || exp_b) {
+        auto exp   = exp_a ? exp_a : exp_b;
+        auto other = exp_a ? b : a;
+        if (auto intr = other->isa<IntrType>()) {
+            // Instanciate the expansion for every member of the intersection
+            IntrType::Args insts;
+            for (auto arg : intr->args)
+                insts.insert(unify(loc, instanciate(exp), arg));
+            return join(loc, exp, type_table_.intr_type(std::move(insts)));
+        } else {
+            // Instanciate only once
+            return join(loc, exp, unify(loc, instanciate(exp), other));
+        }
+    }
+
     // Unification for type constructors
     auto app_a = a->isa<TypeApp>();
     auto app_b = b->isa<TypeApp>();
@@ -47,11 +66,18 @@ const Type* TypeInference::unify(const Loc& loc, const Type* a, const Type* b) {
     return a;
 }
 
-const Type* TypeInference::join(const Loc& loc, const TypeVar* var_a, const Type* b) {
+const Type* TypeInference::instanciate(const ExpVar* exp) {
+    auto vars = exp->variables();
+    TypeSubst subst;
+    for (auto var : vars) subst.emplace(var, type_table_.type_var());
+    return exp->arg->substitute(type_table_, subst);
+}
+
+const Type* TypeInference::join(const Loc& loc, const Type* a, const Type* b) {
     // Adds a type equation that maps type 'from' to type 'to'
-    if (var_a == b) return b;
-    assert(find(b) != find(var_a) && "Cycle detected in unification constraints");
-    eqs_.emplace(var_a, Equation(loc, b));
+    if (a == b) return b;
+    assert(find(b) != find(a) && "Cycle detected in unification constraints");
+    eqs_.emplace(a, Equation(loc, b));
     todo_ = true;
     return b;
 }
