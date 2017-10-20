@@ -105,8 +105,20 @@ inline Box operator & (const Box& a, const Box& b) { return zip<BoxOps::And>(a, 
 inline Box operator | (const Box& a, const Box& b) { return zip<BoxOps::Or >(a, b); }
 inline Box operator ^ (const Box& a, const Box& b) { return zip<BoxOps::Xor>(a, b); }
 
+inline std::string cut_zeros(std::string str) {
+    auto pos = str.find('.');
+    if (pos != std::string::npos) {
+        auto i = str.length() - 1;
+        while (i > pos && str[i - 1] == '0') i--;
+        str.resize(i + 1);
+    }
+    return str;
+}
+
 inline std::ostream& operator << (std::ostream& os, const Box& box) {
-    if (box.tag == Box::I1) return os << (box.i1 ? "true" : "false");
+    if (box.tag == Box::I1)  return os << (box.i1 ? "true" : "false");
+    if (box.tag == Box::F32) return os << cut_zeros(std::to_string(box.f32));
+    if (box.tag == Box::F64) return os << cut_zeros(std::to_string(box.f64));
 
     switch (box.tag) {
 #define TAG(t, n, ty) case Box::t: { os << box.n; } break;
