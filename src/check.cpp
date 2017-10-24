@@ -10,7 +10,7 @@ bool TypeChecker::run(const ast::Program& program) {
 
 void TypeChecker::expect(const std::string& where, const Ptr<ast::Expr>& expr, const artic::Type* type) {
     if (expr->type != type)
-        log::error(expr->loc, "type mismatch in {}, got '{}'", where, expr->type);
+        log::error(expr->loc, "type mismatch in {}, got '{}'", where, *expr->type);
 }
 
 namespace ast {
@@ -61,7 +61,7 @@ void DeclExpr::check(TypeChecker& ctx) const {
 void CallExpr::check(TypeChecker& ctx) const {
     auto fn_type = callee->type->isa<artic::FnType>();
     if (!fn_type) {
-        log::error(loc, "callee '{}' is not a function", callee.get());
+        log::error(loc, "callee '{}' is not a function", *callee);
         return;
     }
 

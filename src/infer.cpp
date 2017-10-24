@@ -49,7 +49,7 @@ const Type* TypeInference::unify(const Loc& loc, const Type* a, const Type* b) {
     auto app_b = b->isa<TypeApp>();
     if (app_a && app_b && typeid(*app_a) == typeid(*app_b) && app_a->args.size() == app_b->args.size()) {
         if (app_a->name != app_b->name) {
-            log::error(loc, "incompatible nominal types '{}' and '{}'", a, b);
+            log::error(loc, "incompatible nominal types '{}' and '{}'", *a, *b);
             return type_table_.error_type(loc);
         }
 
@@ -60,7 +60,7 @@ const Type* TypeInference::unify(const Loc& loc, const Type* a, const Type* b) {
     }
 
     if (a != b) {
-        log::error(loc, "cannot unify '{}' and '{}'", a, b);
+        log::error(loc, "cannot unify '{}' and '{}'", *a, *b);
         return type_table_.error_type(loc);
     }
     return a;
@@ -120,8 +120,6 @@ const artic::Type* Path::infer(TypeInference& ctx) const {
 
     auto decl = symbol->decls.front();
     if (!decl->type) return ctx.type(*this);
-
-    // TODO: Make sure the type symbol type is polymorphic and expects at most args.size() variables
 
     return decl->type;
 }
