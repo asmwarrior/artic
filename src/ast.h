@@ -311,12 +311,15 @@ struct CallExpr : public Expr {
     Ptr<Expr> callee;
     Ptr<Expr> arg;
 
+    mutable const artic::Type* callee_type;
+
     CallExpr(const Loc& loc,
              Ptr<Expr>&& callee,
              Ptr<Expr>&& arg)
         : Expr(loc)
         , callee(std::move(callee))
         , arg(std::move(arg))
+        , callee_type(nullptr)
     {}
 
     const artic::Type* infer(TypeInference&) const override;

@@ -25,6 +25,8 @@ public:
     const Type* type(const ast::Node&);
     const Type* infer(const ast::Node&, const Type* expected = nullptr);
 
+    const Type* literal_type(const Literal&);
+
     TypeTable& type_table() { return type_table_; }
 
 private:

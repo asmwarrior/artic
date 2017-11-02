@@ -111,6 +111,32 @@ const Type* TypeInference::infer(const ast::Node& node, const Type* expected) {
     return nullptr;
 }
 
+const Type* TypeInference::literal_type(const Literal& lit) {
+    if (lit.is_double()) {
+        return type_table_.intr_type({
+            type_table_.prim_type(PrimType::F32),
+            type_table_.prim_type(PrimType::F64)
+        });
+    } else if (lit.is_integer()) {
+        return type_table_.intr_type({
+            type_table_.prim_type(PrimType::F32),
+            type_table_.prim_type(PrimType::F64),
+            type_table_.prim_type(PrimType::I8),
+            type_table_.prim_type(PrimType::I16),
+            type_table_.prim_type(PrimType::I32),
+            type_table_.prim_type(PrimType::I64),
+            type_table_.prim_type(PrimType::U8),
+            type_table_.prim_type(PrimType::U16),
+            type_table_.prim_type(PrimType::U32),
+            type_table_.prim_type(PrimType::U64)
+        });
+    } else if (lit.is_bool()) {
+        return type_table_.prim_type(PrimType::I1);
+    }
+    assert(false);
+    return nullptr;
+}
+
 namespace ast {
 
 const artic::Type* Path::infer(TypeInference& ctx) const {
@@ -153,8 +179,7 @@ const artic::Type* PathExpr::infer(TypeInference& ctx) const {
 }
 
 const artic::Type* LiteralExpr::infer(TypeInference& ctx) const {
-    // TODO: Create a Num type for integers, Fract for floats
-    return ctx.type(*this);
+    return ctx.literal_type(lit);
 }
 
 const artic::Type* TupleExpr::infer(TypeInference& ctx) const {
@@ -183,7 +208,9 @@ const artic::Type* DeclExpr::infer(TypeInference& ctx) const {
 const artic::Type* CallExpr::infer(TypeInference& ctx) const {
     auto arg_type = ctx.infer(*arg);
     auto ret_type = ctx.type(*this);
-    ctx.infer(*callee, ctx.type_table().fn_type(arg_type, ret_type));
+    auto fn_type = ctx.type_table().fn_type(arg_type, ret_type);
+    callee_type = callee_type ? callee_type : ctx.type_table().exp_var(fn_type);
+    ctx.infer(*callee, callee_type);
     return ret_type;
 }
 
@@ -221,8 +248,7 @@ const artic::Type* IdPtrn::infer(TypeInference& ctx) const {
 }
 
 const artic::Type* LiteralPtrn::infer(TypeInference& ctx) const {
-    // TODO: Create a Num type for integers, Fract for floats
-    return ctx.type(*this);
+    return ctx.literal_type(lit);
 }
 
 const artic::Type* TuplePtrn::infer(TypeInference& ctx) const {
