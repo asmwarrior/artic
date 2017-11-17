@@ -85,12 +85,12 @@ const Type* TypeInference::intersect(const Loc& loc, const IntrType* intr, const
         if (intr->args.size() > other_intr->args.size())
             std::swap(intr, other_intr);
         for (auto arg : intr->args) {
-            if (std::binary_search(other_intr->args.begin(), other_intr->args.end(), arg))
+            if (other_intr->contains(arg))
                 args.push_back(arg);
         }
         return type_table_.intr_type(std::move(args));
     } else {
-        if (!std::binary_search(intr->args.begin(), intr->args.end(), other)) {
+        if (!intr->contains(other)) {
             log::error(loc, "intersection of '{}' and '{}' is empty", *intr, *other);
             return type_table_.error_type(loc);
         }

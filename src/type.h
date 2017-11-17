@@ -158,6 +158,10 @@ struct IntrType : public TypeApp {
         this->args.erase(std::unique(this->args.begin(), this->args.end()), this->args.end());
     }
 
+    bool contains(const Type* other) const {
+        return std::binary_search(args.begin(), args.end(), other);
+    }
+
     const Type* rebuild(TypeTable&, Args&&) const override;
     void print(Printer&) const override;
 };
