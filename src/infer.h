@@ -19,6 +19,7 @@ public:
 
     const Type* unify(const Loc&, const Type*, const Type*);
     const Type* instanciate(const ExpVar*);
+    const Type* intersect(const Loc&, const IntrType*, const Type*);
     const Type* join(const Loc&, const Type*, const Type*);
     const Type* find(const Type*);
 

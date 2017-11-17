@@ -206,7 +206,8 @@ const FnType* TypeTable::fn_type(const Type* from, const Type* to) {
     return new_type<FnType>(from, to);
 }
 
-const IntrType* TypeTable::intr_type(IntrType::Args&& args) {
+const Type* TypeTable::intr_type(IntrType::Args&& args) {
+    if (args.size() == 1) return *args.begin();
     return new_type<IntrType>(std::move(args));
 }
 

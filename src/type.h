@@ -233,7 +233,7 @@ public:
     const TupleType*    tuple_type(TupleType::Args&&);
     const TupleType*    unit_type();
     const FnType*       fn_type(const Type*, const Type*);
-    const IntrType*     intr_type(IntrType::Args&&);
+    const Type*         intr_type(IntrType::Args&&);
     const TypeVar*      type_var();
     const ExpVar*       exp_var(const Type*);
     const ErrorType*    error_type(const Loc&);
