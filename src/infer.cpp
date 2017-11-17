@@ -47,8 +47,8 @@ const Type* TypeInference::unify(const Loc& loc, const Type* a, const Type* b) {
     // Unification for intersection types
     auto intr_a = a->isa<IntrType>();
     auto intr_b = b->isa<IntrType>();
-    if (intr_a) return intersect(loc, intr_a, b);
-    if (intr_b) return intersect(loc, intr_b, a);
+    if (intr_a) return intersect(intr_a, b);
+    if (intr_b) return intersect(intr_b, a);
 
     // Unification for type constructors
     auto app_a = a->isa<TypeApp>();
@@ -79,7 +79,7 @@ const Type* TypeInference::instanciate(const ExpVar* exp) {
     return exp->arg->substitute(type_table_, subst);
 }
 
-const Type* TypeInference::intersect(const Loc& loc, const IntrType* intr, const Type* other) {
+const Type* TypeInference::intersect(const IntrType* intr, const Type* other) {
     if (auto other_intr = other->isa<IntrType>()) {
         IntrType::Args args;
         if (intr->args.size() > other_intr->args.size())
@@ -90,11 +90,7 @@ const Type* TypeInference::intersect(const Loc& loc, const IntrType* intr, const
         }
         return type_table_.intr_type(std::move(args));
     } else {
-        if (!intr->contains(other)) {
-            log::error(loc, "intersection of '{}' and '{}' is empty", *intr, *other);
-            return type_table_.error_type(loc);
-        }
-        return other;
+        return intr->contains(other) ? other : type_table_.intr_type({});
     }
 }
 

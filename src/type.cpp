@@ -175,6 +175,14 @@ const FnType* TypeTable::fn_type(const Type* from, const Type* to) {
 }
 
 const Type* TypeTable::intr_type(IntrType::Args&& args) {
+    for (size_t i = 0, n = args.size(); i < n; i++) {
+        if (auto intr = args[i]->isa<IntrType>()) {
+            args.insert(args.end(), intr->args.begin(), intr->args.end());
+        }
+    }
+    args.erase(std::remove_if(args.begin(), args.end(), [] (auto arg) {
+        return arg->isa<IntrType>();
+    }), args.end());
     if (args.size() == 1) return *args.begin();
     return new_type<IntrType>(std::move(args));
 }
