@@ -10,7 +10,7 @@ bool TypeChecker::run(const ast::Program& program) {
 
 void TypeChecker::expect(const std::string& where, const Ptr<ast::Expr>& expr, const artic::Type* type) {
     if (expr->type != type)
-        log::error(expr->loc, "type mismatch in {}, got '{}'", where, *expr->type);
+        log::error(expr->loc, "type mismatch in {}, got '{}' and '{}'", where, *expr->type, *type);
 }
 
 namespace ast {

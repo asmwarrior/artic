@@ -3,8 +3,8 @@
 
 #include <unordered_set>
 #include <unordered_map>
+#include <algorithm>
 #include <vector>
-#include <limits>
 
 #include "cast.h"
 #include "hash.h"
@@ -109,7 +109,7 @@ struct TypeApp : public Type {
     bool is_nominal() const;
 
     /// Rebuilds this type with different arguments.
-    virtual const TypeApp* rebuild(TypeTable& table, Args&& new_args) const = 0;
+    virtual const Type* rebuild(TypeTable& table, Args&& new_args) const = 0;
 
     uint32_t hash() const override;
     bool equals(const Type* t) const override;
@@ -123,7 +123,7 @@ struct TupleType : public TypeApp {
         : TypeApp(std::move(args))
     {}
 
-    const TypeApp* rebuild(TypeTable&, Args&&) const override;
+    const Type* rebuild(TypeTable&, Args&&) const override;
     void print(Printer&) const override;
 };
 
@@ -141,27 +141,24 @@ struct FnType : public TypeApp {
     const Type* first_arg() const;
     size_t num_args() const;
 
-    const TypeApp* rebuild(TypeTable&, Args&&) const override;
+    const Type* rebuild(TypeTable&, Args&&) const override;
     void print(Printer&) const override;
 };
 
 /// Intersection type.
-struct IntrType : public Type {
-    typedef std::unordered_set<const Type*> Args;
-    Args args;
+struct IntrType : public TypeApp {
+    using TypeApp::Args;
 
     IntrType(Args&& args)
-        : args(std::move(args))
-    {}
+        : TypeApp(std::move(args))
+    {
+        // Comparison should be order independent
+        std::sort(this->args.begin(), this->args.end());
+        // Types should be present only once
+        this->args.erase(std::unique(this->args.begin(), this->args.end()), this->args.end());
+    }
 
-    const Type* substitute(TypeTable& table, const TypeSubst& map) const override;
-    void variables(TypeVars&) const override;
-
-    bool has_variables() const override;
-    bool has_errors() const override;
-
-    uint32_t hash() const override;
-    bool equals(const Type* t) const override;
+    const Type* rebuild(TypeTable&, Args&&) const override;
     void print(Printer&) const override;
 };
 

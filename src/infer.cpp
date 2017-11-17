@@ -36,7 +36,7 @@ const Type* TypeInference::unify(const Loc& loc, const Type* a, const Type* b) {
             // Instanciate the expansion for every member of the intersection
             IntrType::Args insts;
             for (auto arg : intr->args)
-                insts.insert(unify(loc, instanciate(exp), arg));
+                insts.emplace_back(unify(loc, instanciate(exp), arg));
             return join(loc, exp, type_table_.intr_type(std::move(insts)));
         } else {
             // Instanciate only once
@@ -85,12 +85,12 @@ const Type* TypeInference::intersect(const Loc& loc, const IntrType* intr, const
         if (intr->args.size() > other_intr->args.size())
             std::swap(intr, other_intr);
         for (auto arg : intr->args) {
-            if (other_intr->args.count(arg) != 0)
-                args.emplace(arg);
+            if (std::binary_search(other_intr->args.begin(), other_intr->args.end(), arg))
+                args.push_back(arg);
         }
         return type_table_.intr_type(std::move(args));
     } else {
-        if (intr->args.count(other) == 0) {
+        if (!std::binary_search(intr->args.begin(), intr->args.end(), other)) {
             log::error(loc, "intersection of '{}' and '{}' is empty", *intr, *other);
             return type_table_.error_type(loc);
         }

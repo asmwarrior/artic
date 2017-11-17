@@ -43,12 +43,6 @@ uint32_t TypeApp::hash() const {
     return hash_combine(h, name);
 }
 
-uint32_t IntrType::hash() const {
-    auto h = kind_hash();
-    for (auto arg : args) h = hash_combine(h, arg->hash());
-    return h;
-}
-
 uint32_t TypeVar::hash() const {
     return hash_combine(kind_hash(), id);
 }
@@ -84,12 +78,6 @@ bool TypeApp::equals(const Type* t) const {
     return false;
 }
 
-bool IntrType::equals(const Type* t) const {
-    if (auto intr = t->isa<IntrType>())
-        return intr->args == args;
-    return false;
-}
-
 bool TypeVar::equals(const Type* t) const {
     return t == this;
 }
@@ -104,21 +92,21 @@ bool ErrorType::equals(const Type*) const {
 
 // Rebuild -------------------------------------------------------------------------
 
-const TypeApp* TupleType::rebuild(TypeTable& table, Args&& new_args) const {
+const Type* TupleType::rebuild(TypeTable& table, Args&& new_args) const {
     return table.tuple_type(std::move(new_args));
 }
 
-const TypeApp* FnType::rebuild(TypeTable& table, Args&& new_args) const {
+const Type* FnType::rebuild(TypeTable& table, Args&& new_args) const {
     return table.fn_type(new_args[0], new_args[1]);
+}
+
+const Type* IntrType::rebuild(TypeTable& table, Args&& new_args) const {
+    return table.intr_type(std::move(new_args));
 }
 
 // Variables -----------------------------------------------------------------------
 
 void TypeApp::variables(TypeVars& v) const {
-    for (auto arg : args) arg->variables(v);
-}
-
-void IntrType::variables(TypeVars& v) const {
     for (auto arg : args) arg->variables(v);
 }
 
@@ -129,13 +117,6 @@ void TypeVar::variables(TypeVars& v) const {
 // Has variables -------------------------------------------------------------------
 
 bool TypeApp::has_variables() const {
-    for (auto arg : args) {
-        if (arg->has_variables()) return true;
-    }
-    return false;
-}
-
-bool IntrType::has_variables() const {
     for (auto arg : args) {
         if (arg->has_variables()) return true;
     }
@@ -153,13 +134,6 @@ bool TypeApp::has_errors() const {
         if (arg->has_errors()) return true;
     }
     return false;
-}
-
-bool IntrType::has_errors() const {
-    for (auto arg : args) {
-        if (arg->has_variables()) return true;
-    }
-    return true;
 }
 
 bool ErrorType::has_errors() const {
@@ -180,12 +154,6 @@ const Type* TypeApp::substitute(TypeTable& table, const TypeSubst& map) const {
         return apply_map(map, arg->substitute(table, map));
     });
     return rebuild(table, std::move(new_args));
-}
-
-const Type* IntrType::substitute(TypeTable& table, const TypeSubst& map) const {
-    Args new_args;
-    for (auto arg : args) new_args.emplace(apply_map(map, arg->substitute(table, map)));
-    return table.intr_type(std::move(new_args));
 }
 
 // Type table ----------------------------------------------------------------------
