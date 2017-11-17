@@ -180,7 +180,7 @@ const Type* TypeTable::intr_type(IntrType::Args&& args) {
             args.insert(args.end(), intr->args.begin(), intr->args.end());
         }
     }
-    args.erase(std::remove_if(args.begin(), args.end(), [] (auto arg) {
+    args.erase(std::remove_if(args.begin(), args.end(), [] (const Type* arg) {
         return arg->isa<IntrType>();
     }), args.end());
     if (args.size() == 1) return *args.begin();
