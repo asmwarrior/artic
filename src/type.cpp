@@ -139,7 +139,7 @@ bool IntrType::has_variables() const {
     for (auto arg : args) {
         if (arg->has_variables()) return true;
     }
-    return true;
+    return false;
 }
 
 bool TypeVar::has_variables() const {
