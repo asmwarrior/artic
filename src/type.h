@@ -89,9 +89,6 @@ struct Type : public Cast<Type> {
     /// Returns true iff the type is nominally typed.
     bool is_nominal() const;
 
-    /// Applies a substitution to this type.
-    virtual const Type* substitute(TypeTable&, std::unordered_map<const Type*, const Type*>& map) const;
-
     /// Returns true if the type contains at least one type verifying the predicate.
     virtual bool has(const std::function<bool (const Type*)>& pred) const { return pred(this); };
     /// Returns the types contained in this type that verifies the predicate.
@@ -129,6 +126,9 @@ struct Type : public Cast<Type> {
 
     /// Dumps the type on the console, for debugging purposes.
     void dump() const;
+
+protected:
+    virtual const Type* reduce(TypeTable&, size_t, const std::vector<const Type*>&) const { return this; }
 };
 
 // Base class for types made of multiple arguments.
@@ -144,12 +144,14 @@ struct CompoundType : public Type {
             depth = std::max(arg->depth, depth);
     }
 
-    const Type* substitute(TypeTable& table, std::unordered_map<const Type*, const Type*>& map) const override;
     bool has(const std::function<bool (const Type*)>&) const override;
     void all(std::unordered_set<const Type*>&, const std::function<bool (const Type*)>&) const override;
 
     /// Rebuilds this type with different arguments.
     virtual const CompoundType* rebuild(TypeTable& table, Args&& new_args) const = 0;
+
+protected:
+    const Type* reduce(TypeTable&, size_t, const std::vector<const Type*>&) const override;
 };
 
 log::Output& operator << (log::Output&, const Type&);
@@ -207,7 +209,6 @@ struct StructType : public TypeApp {
     {}
 
     const CompoundType* rebuild(TypeTable&, Args&&) const override;
-
     void print(Printer&) const override;
 
     /// Lazily build the members of the structure.
@@ -218,21 +219,19 @@ private:
 };
 
 /// A trait is a structure containing a set of operations that are valid for a type.
-struct TraitType : public Type {
+struct TraitType : public TypeApp {
     typedef std::unordered_map<std::string, const Type*> Members;
 
-    std::string name;
     const ast::TraitDecl* decl;
     mutable std::unordered_set<const ast::ImplDecl*> impls;
     mutable std::unordered_set<const TraitType*> supers;
 
     TraitType(std::string&& name, const ast::TraitDecl* decl)
-        : name(std::move(name)), decl(decl)
+        : TypeApp(std::move(name), {}), decl(decl)
     {}
 
-    uint32_t hash() const override;
+    const CompoundType* rebuild(TypeTable&, Args&&) const override;
     void print(Printer&) const override;
-    bool equals(const Type*) const override;
 
     /// Lazily build the members of the trait.
     const Members& members() const;
@@ -276,40 +275,19 @@ struct FnType : public TypeApp {
     void print(Printer&) const override;
 };
 
-/// Base type for pointers and references.
-struct RefTypeBase : public CompoundType {
-    AddrSpace addr_space;
+/// Pointer type.
+struct PtrType : public CompoundType {
     bool mut;
+    AddrSpace addr_space;
 
-    RefTypeBase(const Type* pointee, AddrSpace addr_space, bool mut)
-        : CompoundType({ pointee }), addr_space(addr_space), mut(mut)
+    PtrType(const Type* pointee, AddrSpace addr_space, bool mut)
+        : TypeApp({ pointee }), addr_space(addr_space), mut(mut)
     {}
 
-    const Type* pointee() const { return args[0]; }
+    const CompoundType* rebuild(TypeTable&, Args&&) const override;
 
     uint32_t hash() const override;
     bool equals(const Type*) const override;
-};
-
-/// Reference type.
-struct RefType : public RefTypeBase {
-    RefType(const Type* pointee, AddrSpace addr_space, bool mut)
-        : RefTypeBase(pointee, addr_space, mut)
-    {}
-
-    const CompoundType* rebuild(TypeTable&, Args&&) const override;
-
-    void print(Printer&) const override;
-};
-
-/// Pointer type.
-struct PtrType : public RefTypeBase {
-    PtrType(const Type* pointee, AddrSpace addr_space, bool mut)
-        : RefTypeBase(pointee, addr_space, mut)
-    {}
-
-    const CompoundType* rebuild(TypeTable&, Args&&) const override;
-
     void print(Printer&) const override;
 };
 
@@ -324,6 +302,7 @@ struct PolyType : public CompoundType {
         depth = num_vars + body->depth;
     }
 
+    const Type* apply(TypeTable&, const std::vector<const Type*>&) const;
     const Type* body() const { return args[0]; }
 
     const CompoundType* rebuild(TypeTable&, Args&&) const override;
@@ -333,16 +312,7 @@ struct PolyType : public CompoundType {
     void print(Printer&) const override;
 };
 
-/// The Self type, which represents the implementation type for a trait.
-struct SelfType : public Type {
-    SelfType() {}
-
-    uint32_t hash() const override;
-    bool equals(const Type*) const override;
-    void print(Printer&) const override;
-};
-
-/// Type variable, identifiable by its (integer) index.
+/// Type variable, identifiable by its DeBruijn index.
 struct TypeVar : public Type {
     typedef std::unordered_set<const TraitType*> Traits;
 
@@ -358,6 +328,9 @@ struct TypeVar : public Type {
     uint32_t hash() const override;
     bool equals(const Type*) const override;
     void print(Printer&) const override;
+
+protected:
+    const Type* reduce(TypeTable&, size_t, const std::vector<const Type*>&) const override;
 };
 
 /// Unknown type in a set of type equations.
@@ -439,10 +412,8 @@ public:
     const TupleType*    tuple_type(TupleType::Args&&);
     const TupleType*    unit_type();
     const FnType*       fn_type(const Type*, const Type*);
-    const RefType*      ref_type(const Type*, AddrSpace, bool);
     const PtrType*      ptr_type(const Type*, AddrSpace, bool);
     const PolyType*     poly_type(size_t, const Type*);
-    const SelfType*     self_type();
     const TypeVar*      type_var(uint32_t, TypeVar::Traits&& traits = TypeVar::Traits());
     const ErrorType*    error_type(const Loc&);
     const InferError*   infer_error(const Loc&, const Type*, const Type*);

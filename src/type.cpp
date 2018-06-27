@@ -44,19 +44,22 @@ bool TraitType::subtrait(const TraitType* super) const {
     });
 }
 
+const Type* PolyType::apply(TypeTable& table, const std::vector<const Type*>& args) const {
+    assert(args.size() <= num_vars);
+    size_t n = num_vars - args.size();
+    return type_table.poly_type(n, reduce(table, num_vars, args));
+}
+
 // Members -------------------------------------------------------------------------
 
-const StructType::Members& StructType::members(TypeTable& type_table) const {
+const StructType::Members& StructType::members(TypeTable& table) const {
     if (members_.empty()) {
         assert(decl->type);
         assert(!decl->type_params || decl->type_params->params.size() == args.size());
         assert(decl->type_params || args.empty());
-        std::unordered_map<const Type*, const Type*> map;
-        for (size_t i = 0; i < args.size(); i++)
-            map.emplace(decl->type_params->params[i]->type, args[i]);
         for (auto& field : decl->fields) {
             assert(field->Node::type);
-            members_.emplace(field->id.name, field->Node::type->substitute(type_table, map));
+            members_.emplace(field->id.name, field->Node::type->reduce(table, args.size(), args));
         }
     }
     return members_;
@@ -91,7 +94,7 @@ uint32_t TraitType::hash() const {
     return hash_string(name);
 }
 
-uint32_t RefTypeBase::hash() const {
+uint32_t PtrType::hash() const {
     return hash_combine(
         typeid(*this).hash_code(),
         pointee()->hash(),
@@ -102,10 +105,6 @@ uint32_t RefTypeBase::hash() const {
 
 uint32_t PolyType::hash() const {
     return hash_combine(body()->hash(), uint32_t(num_vars));
-}
-
-uint32_t SelfType::hash() const {
-    return uint32_t(-1);
 }
 
 uint32_t TypeVar::hash() const {
@@ -155,11 +154,11 @@ bool TraitType::equals(const Type* t) const {
     return t->isa<TraitType>() && t->as<TraitType>()->name == name;
 }
 
-bool RefTypeBase::equals(const Type* t) const {
+bool PtrType::equals(const Type* t) const {
     return typeid(*this) == typeid(*t) &&
-           t->as<RefTypeBase>()->pointee() == pointee() &&
-           t->as<RefTypeBase>()->addr_space == addr_space &&
-           t->as<RefTypeBase>()->mut == mut;
+           t->as<PtrType>()->pointee() == pointee() &&
+           t->as<PtrType>()->addr_space == addr_space &&
+           t->as<PtrType>()->mut == mut;
 }
 
 bool PolyType::equals(const Type* t) const {
@@ -168,10 +167,6 @@ bool PolyType::equals(const Type* t) const {
                poly->num_vars == num_vars;
     }
     return false;
-}
-
-bool SelfType::equals(const Type* t) const {
-    return t->isa<SelfType>();
 }
 
 bool TypeVar::equals(const Type* t) const {
@@ -201,16 +196,16 @@ const CompoundType* StructType::rebuild(TypeTable& table, Args&& new_args) const
     return table.struct_type(std::string(name), std::move(new_args), decl);
 }
 
+const CompoundType* TraitType::rebuild(TypeTable& table, Args&& new_args) const {
+    return table.trait_type(std::string(name), decl);
+}
+
 const CompoundType* TupleType::rebuild(TypeTable& table, Args&& new_args) const {
     return table.tuple_type(std::move(new_args));
 }
 
 const CompoundType* FnType::rebuild(TypeTable& table, Args&& new_args) const {
     return table.fn_type(new_args[0], new_args[1]);
-}
-
-const CompoundType* RefType::rebuild(TypeTable& table, Args&& new_args) const {
-    return table.ref_type(new_args[0], addr_space, mut);
 }
 
 const CompoundType* PtrType::rebuild(TypeTable& table, Args&& new_args) const {
@@ -249,20 +244,20 @@ bool InferError::has(const std::function<bool (const Type*)>& pred) const {
     return pred(this) || left->has(pred) || right->has(pred);
 }
 
-// Substitute ----------------------------------------------------------------------
+// Reduce --------------------------------------------------------------------------
 
-const Type* Type::substitute(TypeTable&, std::unordered_map<const Type*, const Type*>& map) const {
-    auto it = map.find(this);
-    if (it != map.end()) return it->second;
-    return this;
-}
-
-const Type* CompoundType::substitute(TypeTable& table, std::unordered_map<const Type*, const Type*>& map) const {
+const Type* CompoundType::reduce(TypeTable& table, size_t depth, const std::vector<const Type*>& args) const {
     Args new_args(args.size());
     std::transform(args.begin(), args.end(), new_args.begin(), [&] (auto arg) {
-        return arg->substitute(table, map);
+        return arg->reduce(table, depth, args);
     });
-    return map[this] = rebuild(table, std::move(new_args));
+    return rebuild(table, args);
+}
+
+const Type* TypeVar::reduce(TypeTable&, size_t depth, const std::vector<const Type*>& args) const {
+    if (depth > index + args.size() || depth <= index)
+        return this;
+    return args[depth - index - 1];
 }
 
 // Type table ----------------------------------------------------------------------
@@ -300,13 +295,11 @@ const PtrType* TypeTable::ptr_type(const Type* pointee, AddrSpace addr_space, bo
 }
 
 const PolyType* TypeTable::poly_type(size_t num_vars, const Type* body) {
+    if (num_vars == 0)
+        return body;
     if (auto poly_type = body->isa<PolyType>())
         return new_type<PolyType>(num_vars + poly_type->num_vars, poly_type->body());
     return new_type<PolyType>(num_vars, body);
-}
-
-const SelfType* TypeTable::self_type() {
-    return new_type<SelfType>();
 }
 
 const TypeVar* TypeTable::type_var(uint32_t index, TypeVar::Traits&& traits) {

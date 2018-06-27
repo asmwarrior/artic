@@ -45,9 +45,13 @@ struct Node : public Cast<Node> {
     /// Type assigned after type inference. Not all nodes are typeable.
     mutable const artic::Type* type;
 
+    /// Type variable depth. Used for DeBruijn indexing.
+    mutable size_t var_depth;
+
     Node(const Loc& loc)
         : loc(loc)
         , type(nullptr)
+        , var_depth(0)
     {}
 
     virtual ~Node() {}

@@ -15,7 +15,12 @@ class Expr;
 /// Binds identifiers to the nodes of the AST.
 class NameBinder : public Logger {
 public:
-    NameBinder(const Logger& log = Logger()) : Logger(log) { push_scope(); }
+    NameBinder(const Logger& log = Logger())
+        : Logger(log), var_depth_(0)
+    {
+        push_scope();
+    }
+
     ~NameBinder() { pop_scope(); }
 
     /// Performs name binding on a whole program.
@@ -25,8 +30,17 @@ public:
     void bind_head(const ast::Decl&);
     void bind(const ast::Node&);
 
-    void push_scope() { scopes_.emplace_back(); }
-    void pop_scope()  { scopes_.pop_back(); }
+    void push_scope(size_t vars = 0) {
+        var_depth_ += vars;
+        scopes_.emplace_back();
+    }
+
+    void pop_scope(size_t vars = 0) {
+        scopes_.pop_back();
+        var_depth_ -= vars;
+    }
+
+    void insert_var(const ast::TypeParam&) { var_depth_++; }
     void insert_symbol(const ast::NamedDecl&);
 
     std::shared_ptr<Symbol> find_symbol(const std::string& name) {
@@ -38,6 +52,7 @@ public:
 
 private:
     std::vector<SymbolTable> scopes_;
+    size_t var_depth_;
 };
 
 } // namespace artic

@@ -9,10 +9,12 @@ bool NameBinder::run(const ast::Program& program) {
 }
 
 void NameBinder::bind_head(const ast::Decl& decl) {
+    decl.var_depth = var_depth;
     decl.bind_head(*this);
 }
 
 void NameBinder::bind(const ast::Node& node) {
+    node.var_depth = var_depth;
     node.bind(*this);
 }
 
@@ -181,6 +183,7 @@ void TypeParam::bind(NameBinder& ctx) const {
     for (auto& bound : bounds)
         ctx.bind(*bound);
     ctx.insert_symbol(*this);
+    ctx.insert_var(*this);
 }
 
 void TypeParamList::bind(NameBinder& ctx) const {
@@ -201,14 +204,13 @@ void FnDecl::bind_head(NameBinder& ctx) const {
 }
 
 void FnDecl::bind(NameBinder& ctx) const {
-    ctx.push_scope();
-
+    auto vars = type_params ? type_params->params.size() : 0;
+    ctx.push_scope(vars);
     if (type_params) ctx.bind(*type_params);
     if (ret_type)    ctx.bind(*ret_type);
-
     if (fn->body) ctx.bind(*fn);
     else          ctx.bind(*fn->param);
-    ctx.pop_scope();
+    ctx.pop_scope(vars);
 }
 
 void FieldDecl::bind(NameBinder& ctx) const {
@@ -221,10 +223,11 @@ void StructDecl::bind_head(NameBinder& ctx) const {
 }
 
 void StructDecl::bind(NameBinder& ctx) const {
-    ctx.push_scope();
+    auto vars = type_params ? type_params->params.size() : 0;
+    ctx.push_scope(vars);
     if (type_params) ctx.bind(*type_params);
     for (auto& field : fields) ctx.bind(*field);
-    ctx.pop_scope();
+    ctx.pop_scope(vars);
 }
 
 void TraitDecl::bind_head(NameBinder& ctx) const {
@@ -239,12 +242,13 @@ void TraitDecl::bind(NameBinder& ctx) const {
 }
 
 void ImplDecl::bind(NameBinder& ctx) const {
-    ctx.push_scope();
+    auto vars = type_params ? type_params->params.size() : 0;
+    ctx.push_scope(vars);
     if (type_params) ctx.bind(*type_params);
     ctx.bind(*trait);
     ctx.bind(*type);
     for (auto& decl : decls) ctx.bind(*decl);
-    ctx.pop_scope();
+    ctx.pop_scope(vars);
 }
 
 void ErrorDecl::bind(NameBinder&) const {}
