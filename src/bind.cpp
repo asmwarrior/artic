@@ -9,12 +9,12 @@ bool NameBinder::run(const ast::Program& program) {
 }
 
 void NameBinder::bind_head(const ast::Decl& decl) {
-    decl.var_depth = var_depth;
+    decl.var_depth = var_depth_;
     decl.bind_head(*this);
 }
 
 void NameBinder::bind(const ast::Node& node) {
-    node.var_depth = var_depth;
+    node.var_depth = var_depth_;
     node.bind(*this);
 }
 

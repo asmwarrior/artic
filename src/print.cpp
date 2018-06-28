@@ -512,7 +512,7 @@ void StructType::print(Printer& p) const {
 }
 
 void TraitType::print(Printer& p) const {
-    p << keyword_style("trait") << ' ' << name;
+    p << name;
 }
 
 void TupleType::print(Printer& p) const {
@@ -530,14 +530,6 @@ void FnType::print(Printer& p) const {
     to()->print(p);
 }
 
-void RefType::print(Printer& p) const {
-    p << keyword_style("ref") << ' ';
-    if (mut) p << keyword_style("mut") << ' ';
-    if (addr_space.locality != AddrSpace::Generic)
-        p << keyword_style(addr_space.to_string()) << ' ';
-    pointee()->print(p);
-}
-
 void PtrType::print(Printer& p) const {
     p << '&';
     if (mut) p << keyword_style("mut") << ' ';
@@ -548,31 +540,31 @@ void PtrType::print(Printer& p) const {
 
 void PolyType::print(Printer& p) const {
     p << keyword_style("for") << '<';
-    auto vars = body()->all<TypeVar>();
-    std::sort(vars.begin(), vars.end(), [] (auto& var1, auto& var2) {
-        return var1->index < var2->index;
-    });
-    for (size_t i = 0, n = std::min(vars.size(), num_vars); i < n; i++) {
-        p << type_var_style(p.var_name(i));
-        assert(vars[i]->index == i);
-        if (!vars[i]->traits.empty()) {
-            p << " : ";
-            print_list(p, " + ", vars[i]->traits, [&] (auto& trait) {
-                p << trait->name;
-            });
+    if (p.use_names) {
+        for (size_t i = 0; i < num_vars; i++) {
+            p << type_var_style(p.var_name(p.depth + i));
+            if (!var_traits[i].empty()) {
+                p << " : ";
+                print_list(p, " + ", var_traits[i], [&] (auto& trait) {
+                    trait->print(p);
+                });
+            }
+            if (i != num_vars - 1) p << ", ";
         }
-        if (i != n - 1) p << ", ";
+    } else {
+        p << num_vars;
     }
     p << "> ";
+    p.depth += num_vars;
     body()->print(p);
-}
-
-void SelfType::print(Printer& p) const {
-    p << keyword_style("Self");
+    p.depth -= num_vars;
 }
 
 void TypeVar::print(Printer& p) const {
-    p << type_var_style(p.var_name(index));
+    if (!p.use_names || index >= p.depth)
+        p << type_var_style("#" + std::to_string(index));
+    else
+        p << type_var_style(p.var_name(p.depth - index - 1));
 }
 
 void UnknownType::print(Printer& p) const {

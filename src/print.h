@@ -23,8 +23,10 @@ struct Printer {
     log::Output& out;
     std::vector<std::string> var_names;
 
-    int level = 0;      ///< Initial indentation level
-    std::string tab;    ///< String used as tabulation symbol
+    bool use_names = true;  ///< Set to false to visualize DeBruijn indices
+    size_t depth = 0;       ///< Type variable depth
+    size_t level = 0;       ///< Initial indentation level
+    std::string tab;        ///< String used as tabulation symbol
 
     Printer(log::Output& out, const std::string& tab = "    ")
         : out(out), tab(tab)
@@ -39,7 +41,7 @@ struct Printer {
         return *this;
     }
 
-    std::string var_name(int i) {
+    std::string var_name(size_t i) {
         if (var_names.empty()) {
             return "T" + (i > 0 ? std::to_string(i) : "");
         } else {

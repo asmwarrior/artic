@@ -44,15 +44,9 @@ bool TraitType::subtrait(const TraitType* super) const {
     });
 }
 
-const Type* PolyType::apply(TypeTable& table, const std::vector<const Type*>& args) const {
-    assert(args.size() <= num_vars);
-    size_t n = num_vars - args.size();
-    return type_table.poly_type(n, reduce(table, num_vars, args));
-}
-
 // Members -------------------------------------------------------------------------
 
-const StructType::Members& StructType::members(TypeTable& table) const {
+/*const StructType::Members& StructType::members(TypeTable& table) const {
     if (members_.empty()) {
         assert(decl->type);
         assert(!decl->type_params || decl->type_params->params.size() == args.size());
@@ -74,7 +68,7 @@ const TraitType::Members& TraitType::members() const {
         }
     }
     return members_;
-}
+}*/
 
 // Hash ----------------------------------------------------------------------------
 
@@ -88,10 +82,6 @@ uint32_t TypeApp::hash() const {
         hash_string(name),
         hash_list(args, [] (auto& arg) { return arg->hash(); })
     );
-}
-
-uint32_t TraitType::hash() const {
-    return hash_string(name);
 }
 
 uint32_t PtrType::hash() const {
@@ -148,10 +138,6 @@ bool TypeApp::equals(const Type* t) const {
         return true;
     }
     return false;
-}
-
-bool TraitType::equals(const Type* t) const {
-    return t->isa<TraitType>() && t->as<TraitType>()->name == name;
 }
 
 bool PtrType::equals(const Type* t) const {
@@ -213,7 +199,7 @@ const CompoundType* PtrType::rebuild(TypeTable& table, Args&& new_args) const {
 }
 
 const CompoundType* PolyType::rebuild(TypeTable& table, Args&& new_args) const {
-    return table.poly_type(num_vars, new_args[0]);
+    return table.poly_type(num_vars, new_args[0])->as<PolyType>();
 }
 
 // All -----------------------------------------------------------------------------
@@ -246,18 +232,47 @@ bool InferError::has(const std::function<bool (const Type*)>& pred) const {
 
 // Reduce --------------------------------------------------------------------------
 
-const Type* CompoundType::reduce(TypeTable& table, size_t depth, const std::vector<const Type*>& args) const {
+const Type* CompoundType::reduce(TypeTable& table, size_t depth, const std::vector<const Type*>& types) const {
     Args new_args(args.size());
     std::transform(args.begin(), args.end(), new_args.begin(), [&] (auto arg) {
-        return arg->reduce(table, depth, args);
+        return arg->reduce(table, depth, types);
     });
-    return rebuild(table, args);
+    return rebuild(table, std::move(new_args));
 }
 
-const Type* TypeVar::reduce(TypeTable&, size_t depth, const std::vector<const Type*>& args) const {
-    if (depth > index + args.size() || depth <= index)
+const Type* TypeVar::reduce(TypeTable& table, size_t depth, const std::vector<const Type*>& types) const {
+    if (depth > index + types.size() || depth <= index)
         return this;
-    return args[depth - index - 1];
+    return types[depth - index - 1]->shift(table, 0, depth);
+}
+
+const Type* PolyType::reduce(TypeTable& table, size_t depth, const std::vector<const Type*>& types) const {
+    if (depth == 0) {
+        assert(types.size() <= num_vars);
+        auto poly = table.poly_type(num_vars - types.size(), body()->reduce(table, depth + num_vars, types));
+        return poly->shift(table, depth, -types.size());
+    } else {
+        return table.poly_type(num_vars, body()->reduce(table, depth + num_vars, types));
+    }
+}
+
+// Shift ---------------------------------------------------------------------------
+
+const Type* CompoundType::shift(TypeTable& table, size_t depth, int32_t n) const {
+    Args new_args(args.size());
+    std::transform(args.begin(), args.end(), new_args.begin(), [&] (auto arg) {
+        return arg->shift(table, depth, n);
+    });
+    return rebuild(table, std::move(new_args));
+}
+
+const Type* TypeVar::shift(TypeTable& table, size_t depth, int32_t n) const {
+    assert(index < depth || index + n >= 0);
+    return index >= depth ? table.type_var(index + n, Traits(traits)) : this;
+}
+
+const Type* PolyType::shift(TypeTable& table, size_t depth, int32_t n) const {
+    return table.poly_type(num_vars, body()->shift(table, depth + num_vars, n));
 }
 
 // Type table ----------------------------------------------------------------------
@@ -286,20 +301,19 @@ const FnType* TypeTable::fn_type(const Type* from, const Type* to) {
     return new_type<FnType>(from, to);
 }
 
-const RefType* TypeTable::ref_type(const Type* pointee, AddrSpace addr_space, bool mut) {
-    return new_type<RefType>(pointee, addr_space, mut);
-}
-
 const PtrType* TypeTable::ptr_type(const Type* pointee, AddrSpace addr_space, bool mut) {
     return new_type<PtrType>(pointee, addr_space, mut);
 }
 
-const PolyType* TypeTable::poly_type(size_t num_vars, const Type* body) {
+const Type* TypeTable::poly_type(size_t num_vars, const Type* body, PolyType::VarTraits&& var_traits) {
     if (num_vars == 0)
         return body;
-    if (auto poly_type = body->isa<PolyType>())
-        return new_type<PolyType>(num_vars + poly_type->num_vars, poly_type->body());
-    return new_type<PolyType>(num_vars, body);
+    var_traits.resize(num_vars);
+    if (auto poly_type = body->isa<PolyType>()) {
+        var_traits.insert(var_traits.end(), poly_type->var_traits.begin(), poly_type->var_traits.end());
+        return new_type<PolyType>(num_vars + poly_type->num_vars, poly_type->body(), std::move(var_traits));
+    }
+    return new_type<PolyType>(num_vars, body, std::move(var_traits));
 }
 
 const TypeVar* TypeTable::type_var(uint32_t index, TypeVar::Traits&& traits) {
