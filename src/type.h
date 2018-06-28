@@ -139,13 +139,11 @@ struct CompoundType : public Type {
 
     bool has(const std::function<bool (const Type*)>&) const override;
     void all(std::unordered_set<const Type*>&, const std::function<bool (const Type*)>&) const override;
+    const Type* reduce(TypeTable&, size_t, const std::vector<const Type*>&) const override;
+    const Type* shift(TypeTable&, size_t, int32_t) const override;
 
     /// Rebuilds this type with different arguments.
     virtual const CompoundType* rebuild(TypeTable& table, Args&& new_args) const = 0;
-
-protected:
-    const Type* reduce(TypeTable&, size_t, const std::vector<const Type*>&) const override;
-    const Type* shift(TypeTable&, size_t, int32_t) const override;
 };
 
 log::Output& operator << (log::Output&, const Type&);
@@ -300,13 +298,12 @@ struct TypeVar : public Type {
         : index(index), traits(std::move(traits))
     {}
 
+    const Type* reduce(TypeTable&, size_t, const std::vector<const Type*>&) const override;
+    const Type* shift(TypeTable&, size_t, int32_t) const override;
+
     uint32_t hash() const override;
     bool equals(const Type*) const override;
     void print(Printer&) const override;
-
-protected:
-    const Type* reduce(TypeTable&, size_t, const std::vector<const Type*>&) const override;
-    const Type* shift(TypeTable&, size_t, int32_t) const override;
 };
 
 /// Unknown type in a set of type equations.
@@ -342,15 +339,14 @@ struct PolyType : public CompoundType {
 
     const Type* body() const { return args[0]; }
 
+    const Type* reduce(TypeTable&, size_t, const std::vector<const Type*>&) const override;
+    const Type* shift(TypeTable&, size_t, int32_t) const override;
+
     const CompoundType* rebuild(TypeTable&, Args&&) const override;
 
     uint32_t hash() const override;
     bool equals(const Type*) const override;
     void print(Printer&) const override;
-
-protected:
-    const Type* reduce(TypeTable&, size_t, const std::vector<const Type*>&) const override;
-    const Type* shift(TypeTable&, size_t, int32_t) const override;
 };
 
 /// Base class for type errors.
