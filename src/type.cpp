@@ -46,7 +46,7 @@ bool TraitType::subtrait(const TraitType* super) const {
 
 // Members -------------------------------------------------------------------------
 
-/*const StructType::Members& StructType::members(TypeTable& table) const {
+const StructType::Members& StructType::members(TypeTable& table) const {
     if (members_.empty()) {
         assert(decl->type);
         assert(!decl->type_params || decl->type_params->params.size() == args.size());
@@ -68,7 +68,7 @@ const TraitType::Members& TraitType::members() const {
         }
     }
     return members_;
-}*/
+}
 
 // Hash ----------------------------------------------------------------------------
 
@@ -182,7 +182,7 @@ const CompoundType* StructType::rebuild(TypeTable& table, Args&& new_args) const
     return table.struct_type(std::string(name), std::move(new_args), decl);
 }
 
-const CompoundType* TraitType::rebuild(TypeTable& table, Args&& new_args) const {
+const CompoundType* TraitType::rebuild(TypeTable& table, Args&&) const {
     return table.trait_type(std::string(name), decl);
 }
 
@@ -267,7 +267,7 @@ const Type* CompoundType::shift(TypeTable& table, size_t depth, int32_t n) const
 }
 
 const Type* TypeVar::shift(TypeTable& table, size_t depth, int32_t n) const {
-    assert(index < depth || index + n >= 0);
+    assert(index < depth || int32_t(index) + n >= 0);
     return index >= depth ? table.type_var(index + n, Traits(traits)) : this;
 }
 

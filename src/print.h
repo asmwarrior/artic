@@ -37,7 +37,7 @@ struct Printer {
     Printer& operator << (const Unindent&) { level--; return *this; }
     Printer& operator << (const Endl&) {
         out << '\n';
-        for (int i = 0; i < level; i++) out << tab;
+        for (size_t i = 0; i < level; i++) out << tab;
         return *this;
     }
 
@@ -45,7 +45,7 @@ struct Printer {
         if (var_names.empty()) {
             return "T" + (i > 0 ? std::to_string(i) : "");
         } else {
-            assert(i < int(var_names.size()));
+            assert(i < var_names.size());
             return var_names[i];
         }
     }
