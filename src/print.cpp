@@ -530,6 +530,14 @@ void FnType::print(Printer& p) const {
     to()->print(p);
 }
 
+void RefType::print(Printer& p) const {
+    p << "ref ";
+    if (mut) p << keyword_style("mut") << ' ';
+    if (addr_space.locality != AddrSpace::Generic)
+        p << keyword_style(addr_space.to_string()) << ' ';
+    pointee()->print(p);
+}
+
 void PtrType::print(Printer& p) const {
     p << '&';
     if (mut) p << keyword_style("mut") << ' ';

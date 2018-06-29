@@ -84,7 +84,7 @@ uint32_t TypeApp::hash() const {
     );
 }
 
-uint32_t PtrType::hash() const {
+uint32_t AddrType::hash() const {
     return hash_combine(
         typeid(*this).hash_code(),
         pointee()->hash(),
@@ -140,7 +140,7 @@ bool TypeApp::equals(const Type* t) const {
     return false;
 }
 
-bool PtrType::equals(const Type* t) const {
+bool AddrType::equals(const Type* t) const {
     return typeid(*this) == typeid(*t) &&
            t->as<PtrType>()->pointee() == pointee() &&
            t->as<PtrType>()->addr_space == addr_space &&
@@ -192,6 +192,10 @@ const CompoundType* TupleType::rebuild(TypeTable& table, Args&& new_args) const 
 
 const CompoundType* FnType::rebuild(TypeTable& table, Args&& new_args) const {
     return table.fn_type(new_args[0], new_args[1]);
+}
+
+const CompoundType* RefType::rebuild(TypeTable& table, Args&& new_args) const {
+    return table.ref_type(new_args[0], addr_space, mut);
 }
 
 const CompoundType* PtrType::rebuild(TypeTable& table, Args&& new_args) const {
@@ -308,7 +312,7 @@ const PtrType* TypeTable::ptr_type(const Type* pointee, AddrSpace addr_space, bo
 const Type* TypeTable::poly_type(size_t num_vars, const Type* body, PolyType::VarTraits&& var_traits) {
     if (num_vars == 0)
         return body;
-    var_traits.resize(num_vars);
+    assert(var_traits.size() == num_vars);
     if (auto poly_type = body->isa<PolyType>()) {
         var_traits.insert(var_traits.end(), poly_type->var_traits.begin(), poly_type->var_traits.end());
         return new_type<PolyType>(num_vars + poly_type->num_vars, poly_type->body(), std::move(var_traits));

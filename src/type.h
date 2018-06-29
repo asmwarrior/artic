@@ -127,7 +127,7 @@ struct Type : public Cast<Type> {
     void dump() const;
 };
 
-// Base class for types made of multiple arguments.
+/// Base class for types made of multiple arguments.
 struct CompoundType : public Type {
     typedef std::vector<const Type*> Args;
 
@@ -267,21 +267,40 @@ struct FnType : public TypeApp {
     void print(Printer&) const override;
 };
 
-/// Pointer type.
-struct PtrType : public CompoundType {
+/// Base class for types that represent an address.
+struct AddrType : public CompoundType {
     AddrSpace addr_space;
     bool mut;
 
-    PtrType(const Type* pointee, AddrSpace addr_space, bool mut)
+    AddrType(const Type* pointee, AddrSpace addr_space, bool mut)
         : CompoundType({ pointee }), addr_space(addr_space), mut(mut)
     {}
 
     const Type* pointee() const { return args[0]; }
 
-    const CompoundType* rebuild(TypeTable&, Args&&) const override;
-
     uint32_t hash() const override;
     bool equals(const Type*) const override;
+};
+
+/// Reference type. Used to keep track of address spaces and mutability.
+struct RefType : public AddrType {
+    RefType(const Type* pointee, AddrSpace addr_space, bool mut)
+        : AddrType(pointee, addr_space, mut)
+    {}
+
+    const CompoundType* rebuild(TypeTable&, Args&&) const override;
+
+    void print(Printer&) const override;
+};
+
+/// Pointer type.
+struct PtrType : public AddrType {
+    PtrType(const Type* pointee, AddrSpace addr_space, bool mut)
+        : AddrType(pointee, addr_space, mut)
+    {}
+
+    const CompoundType* rebuild(TypeTable&, Args&&) const override;
+
     void print(Printer&) const override;
 };
 
@@ -408,12 +427,13 @@ public:
     const TupleType*    tuple_type(TupleType::Args&&);
     const TupleType*    unit_type();
     const FnType*       fn_type(const Type*, const Type*);
+    const RefType*      ref_type(const Type*, AddrSpace, bool);
     const PtrType*      ptr_type(const Type*, AddrSpace, bool);
-    const Type*         poly_type(size_t, const Type*, PolyType::VarTraits&& var_traits = PolyType::VarTraits());
-    const TypeVar*      type_var(uint32_t, TypeVar::Traits&& traits = TypeVar::Traits());
+    const Type*         poly_type(size_t, const Type*, PolyType::VarTraits&& var_traits);
+    const TypeVar*      type_var(uint32_t, TypeVar::Traits&& traits);
     const ErrorType*    error_type(const Loc&);
     const InferError*   infer_error(const Loc&, const Type*, const Type*);
-    const UnknownType*  unknown_type(UnknownType::Traits&& traits = UnknownType::Traits());
+    const UnknownType*  unknown_type(UnknownType::Traits&& traits);
 
     const TypeSet& types() const { return types_; }
     const std::vector<const UnknownType*>& unknowns() const { return unknowns_; }

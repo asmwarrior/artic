@@ -10,7 +10,7 @@ void TypeInference::run(const ast::Program& program) {
     program.infer(*this);
 }
 
-inline bool compatible_refs(const RefTypeBase* a, const RefTypeBase* b) {
+inline bool compatible_addrs(const AddrType* a, const AddrType* b) {
     return (!a->mut || b->mut) && (a->addr_space == AddrSpace(AddrSpace::Generic) || a->addr_space == b->addr_space);
 }
 
@@ -24,13 +24,13 @@ const Type* TypeInference::unify(const Loc& loc, const Type* a, const Type* b) {
     auto ref_b = b->isa<RefType>();
     if (ref_a && !ref_b) return unify(loc, ref_a->pointee(), b);
     if (!ref_a && ref_b) return unify(loc, ref_b->pointee(), a);
-    if (ref_a && ref_b && compatible_refs(ref_b, ref_a))
+    if (ref_a && ref_b && compatible_addrs(ref_b, ref_a))
         return type_table().ref_type(unify(loc, ref_a->pointee(), ref_b->pointee()), ref_b->addr_space, ref_b->mut);
 
     // Pointers
     auto ptr_a = a->isa<PtrType>();
     auto ptr_b = b->isa<PtrType>();
-    if (ptr_a && ptr_b && compatible_refs(ptr_b, ptr_a))
+    if (ptr_a && ptr_b && compatible_addrs(ptr_b, ptr_a))
         return type_table().ptr_type(unify(loc, ptr_a->pointee(), ptr_b->pointee()), ptr_b->addr_space, ptr_b->mut);
 
     // Constrain unknowns
@@ -42,11 +42,10 @@ const Type* TypeInference::unify(const Loc& loc, const Type* a, const Type* b) {
     // Polymorphic types
     auto poly_a = a->isa<PolyType>();
     auto poly_b = b->isa<PolyType>();
-    if (poly_a && poly_b && poly_a->num_vars == poly_b->num_vars) {
-        return type_table().poly_type(poly_a->num_vars, unify(loc, poly_a->body(), poly_b->body()));
-    }
-    if (poly_a) return type_table().poly_type(poly_a->num_vars, unify(loc, poly_a->body(), b));
-    if (poly_b) return type_table().poly_type(poly_b->num_vars, unify(loc, poly_b->body(), a));
+    if (poly_a && poly_b && poly_a->num_vars == poly_b->num_vars)
+        return type_table().poly_type(poly_a->num_vars, unify(loc, poly_a->body(), poly_b->body()), PolyType::VarTraits(poly_a->var_traits));
+    if (poly_a) return type_table().poly_type(poly_a->num_vars, unify(loc, poly_a->body(), b), PolyType::VarTraits(poly_a->var_traits));
+    if (poly_b) return type_table().poly_type(poly_b->num_vars, unify(loc, poly_b->body(), a), PolyType::VarTraits(poly_b->var_traits));
 
     // Unification for functions
     auto fn_a = a->isa<FnType>();
@@ -133,33 +132,15 @@ const Type* TypeInference::subsume(const Loc& loc, const Type* type, std::vector
     type = unify(loc, type, type);
 
     if (auto poly = type->isa<artic::PolyType>()) {
-        std::unordered_map<const artic::Type*, const artic::Type*> map;
-
         // Replaces the type variables in the given type by unknowns
-        for (auto var : type->all<TypeVar>()) {
-            if (var->index >= type_args.size())
-                type_args.resize(var->index + 1);
-            if (!type_args[var->index])
-                type_args[var->index] = type_table().unknown_type(UnknownType::Traits(var->traits));
-            map.emplace(var, type_args[var->index]);
+        for (size_t i = 0; i < poly->num_vars; ++i) {
+            if (!type_args[i])
+                type_args[i] = type_table().unknown_type(UnknownType::Traits(poly->var_traits[i]));
         }
 
-        return poly->substitute(type_table(), map)->as<PolyType>()->body();
+        return poly->reduce(type_table(), 0, type_args);
     }
     return type;
-}
-
-const Type* TypeInference::rename(const Type* type) {
-    std::unordered_map<const Type*, const Type*> map;
-    for (auto& u : type->all<UnknownType>())
-        map.emplace(u, type_table().unknown_type(UnknownType::Traits(u->traits)));
-    return type->substitute(type_table(), map);
-}
-
-const Type* TypeInference::replace_self(const Type* type, const Type* self) {
-    std::unordered_map<const Type*, const Type*> map;
-    map.emplace(type_table().self_type(), self);
-    return type->substitute(type_table(), map);
 }
 
 const Type* TypeInference::match_impl(const Loc& loc, const TraitType* trait, const Type* type) {
@@ -218,10 +199,6 @@ const artic::Type* infer_struct(TypeInference& ctx, const Loc& loc, const artic:
 }
 
 const artic::Type* Path::infer(TypeInference& ctx) const {
-    // Do not subsume twice, as subsumption introduces unknowns
-    if (type)
-        return type;
-
     auto symbol = elems.front().symbol;
     if (!symbol)
         return ctx.type_table().error_type(loc);
@@ -230,7 +207,7 @@ const artic::Type* Path::infer(TypeInference& ctx) const {
     auto decl_type = decl->type;
     assert(decl_type);
     for (size_t i = 1; i < elems.size(); i++) {
-        if (auto trait = decl->type->isa<TraitType>()) {
+        if (auto trait = decl_type->isa<TraitType>()) {
             auto& members = trait->members();
             auto it = members.find(elems[i].id.name);
             if (it != members.end()) {
@@ -241,6 +218,12 @@ const artic::Type* Path::infer(TypeInference& ctx) const {
             }
         }
         return ctx.type_table().error_type(loc);
+    }
+
+    // Remap DeBruijn indices to the correct index
+    if (auto type_var = decl_type->isa<TypeVar>()) {
+        auto index = var_depth - decl->var_depth - type_var->index - 1;
+        return ctx.type_table().type_var(index, TypeVar::Traits(type_var->traits));
     }
 
     type_args.resize(std::max(type_args.size(), args.size()));
@@ -348,14 +331,14 @@ const artic::Type* CallExpr::infer(TypeInference& ctx) const {
 
 const artic::Type* ProjExpr::infer(TypeInference& ctx) const {
     auto expr_type = ctx.infer(*expr);
-    const artic::RefTypeBase* ref_base = ctx.type_table().ref_type(expr_type, AddrSpace::Generic, false);
+    auto addr_type = ctx.type_table().ref_type(expr_type, AddrSpace::Generic, false)->as<AddrType>();
     if (auto ref_type = expr_type->isa<RefType>()) {
         expr_type = ref_type->pointee();
-        ref_base = ref_type;
+        addr_type = ref_type;
     }
     if (auto ptr_type = expr_type->isa<artic::PtrType>()) {
         expr_type = ptr_type->pointee();
-        ref_base = ptr_type;
+        addr_type = ptr_type;
     }
     if (auto struct_type = expr_type->isa<artic::StructType>()) {
         auto& members = struct_type->members(ctx.type_table());
@@ -363,7 +346,7 @@ const artic::Type* ProjExpr::infer(TypeInference& ctx) const {
         if (it == members.end())
             return ctx.type_table().error_type(loc);
         index = std::distance(members.begin(), it);
-        return ctx.type_table().ref_type(it->second, ref_base->addr_space, ref_base->mut);
+        return ctx.type_table().ref_type(it->second, addr_type->addr_space, addr_type->mut);
     }
     return ctx.type(*this);
 }
@@ -373,17 +356,15 @@ const artic::Type* AddrOfExpr::infer(TypeInference& ctx) const {
     if (auto ref_type = expr_type->isa<artic::RefType>()) {
         if (!mut || ref_type->mut)
             return ctx.type_table().ptr_type(ref_type->pointee(), ref_type->addr_space, mut);
-        return ctx.type_table().error_type(loc);
     } else if (expr_type->isa<UnknownType>())
         return ctx.type(*this);
-    else
-        return ctx.type_table().error_type(loc);
+    else if (!mut)
+        return ctx.type_table().ptr_type(ref_type->pointee(), AddrSpace::Generic, false);
+    return ctx.type_table().error_type(loc);
 }
 
 const artic::Type* DerefExpr::infer(TypeInference& ctx) const {
     auto expr_type = ctx.infer(*expr);
-    if (auto ref_type = expr_type->isa<RefType>())
-        expr_type = ref_type->pointee();
     if (auto ptr_type = expr_type->isa<artic::PtrType>())
         return ctx.type_table().ref_type(ptr_type->pointee(), ptr_type->addr_space, ptr_type->mut);
     else if (expr_type->isa<UnknownType>())
@@ -458,10 +439,15 @@ const artic::Type* TypeParam::infer(TypeInference& ctx) const {
 }
 
 const artic::Type* TypeParamList::infer(TypeInference& ctx) const {
-    for (auto& param : params) ctx.infer(*param);
+    PolyType::VarTraits var_traits(params.size());
+    for (auto& param : params) {
+        auto param_type = ctx.infer(*param);
+        if (auto type_var = param_type->isa<TypeVar>())
+            var_traits[param->index] = type_var->traits;
+    }
     return params.empty() || type
         ? ctx.type(*this)
-        : ctx.type_table().poly_type(params.size(), ctx.type_table().unknown_type());
+        : ctx.type_table().poly_type(params.size(), ctx.type_table().unknown_type({}), std::move(var_traits));
 }
 
 const artic::Type* PtrnDecl::infer(TypeInference& ctx) const {

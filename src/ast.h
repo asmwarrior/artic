@@ -112,6 +112,8 @@ struct Ptrn : public Node {
     Ptrn(const Loc& loc) : Node(loc) {}
 
     bool is_tuple() const;
+    /// Returns true if this pattern can be refuted (proven false).
+    /// Refutable patterns cannot be used as binders.
     virtual bool is_refutable() const = 0;
 };
 
