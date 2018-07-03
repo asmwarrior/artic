@@ -22,12 +22,9 @@ public:
     const Type* join(const Loc&, const UnknownType*, const Type*);
     const Type* find(const Type*);
 
-    const Type* unwrap_ref(const Type*& type);
-
     const Type* subsume(const Loc& loc, const Type*, std::vector<const Type*>&);
-    const Type* match_impl(const Loc&, const TraitType*, const Type*);
 
-    const Type* type(const ast::Node&, UnknownType::Traits&& traits = UnknownType::Traits());
+    const Type* type(const ast::Node&, const TraitSet* trait_set = nullptr);
     const Type* infer(const ast::Node&, const Type* expected = nullptr);
     void infer_head(const ast::Decl&);
 

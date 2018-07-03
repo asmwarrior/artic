@@ -83,34 +83,9 @@ const Type* TypeInference::join(const Loc& loc, const UnknownType* unknown_a, co
 
     eqs_.emplace(unknown_a, Equation(loc, b));
 
-    if (auto unknown_b = b->isa<UnknownType>()) {
+    // Propagate trait constraints from one unknown to another
+    if (auto unknown_b = b->isa<UnknownType>())
         unknown_b->traits.insert(unknown_a->traits.begin(), unknown_a->traits.end());
-    } else if (!unknown_a->traits.empty()) {
-        if (auto var_b = b->isa<TypeVar>()) {
-            // Check that the type variable satisfies all the required traits
-            for (auto trait : unknown_a->traits) {
-                bool satisfied = std::any_of(var_b->traits.begin(), var_b->traits.end(), [=] (auto var_trait) {
-                    return var_trait->subtrait(trait);
-                });
-                if (!satisfied)
-                    return type_table().infer_error(loc, unknown_a, b);
-            }
-        } else {
-            // Check that there exists an implementation of the trait for our type
-            for (auto trait : unknown_a->traits) {
-                if (auto matcher = match_impl(loc, trait, b)) {
-                    // Bind the type to the pattern, so as to encode any possible constraints.
-                    // Consider the following implementation:
-                    //     impl<T : Trait> OtherTrait for SomeType<T> { ... }
-                    // This forces T to carry the trait Trait. For this reason, we must unify here.
-                    unify(loc, matcher, b);
-                } else {
-                    return type_table().infer_error(loc, unknown_a, b);
-                }
-            }
-        }
-    }
-
     return b;
 }
 
@@ -141,18 +116,6 @@ const Type* TypeInference::subsume(const Loc& loc, const Type* type, std::vector
         return poly->reduce(type_table(), 0, type_args);
     }
     return type;
-}
-
-const Type* TypeInference::match_impl(const Loc& loc, const TraitType* trait, const Type* type) {
-    for (auto impl : trait->impls) {
-        std::vector<const Type*> args;
-        auto matcher = subsume(loc, impl->Node::type, args);
-        auto renamed = rename(type);
-        // Return the first implementation that matches
-        if (!unify(loc, matcher, renamed)->has<ErrorType>())
-            return matcher;
-    }
-    return nullptr;
 }
 
 const Type* TypeInference::type(const ast::Node& node, UnknownType::Traits&& traits) {
@@ -198,38 +161,40 @@ const artic::Type* infer_struct(TypeInference& ctx, const Loc& loc, const artic:
     return struct_type;
 }
 
-const artic::Type* Path::infer(TypeInference& ctx) const {
-    auto symbol = elems.front().symbol;
-    if (!symbol)
-        return ctx.type_table().error_type(loc);
+const artic::Type* Path::Elem::infer(TypeInference& ctx, const artic::Type* prev_type) const {
+    assert(prev_type);
+    if (auto trait_type = prev_type->isa<TraitType>()) {
+        auto& members = trait_type->members(ctx.type_table());
+        auto it = members.find(id.name);
+        if (it != members.end())
+            return it->second;
+    }
+    return nullptr;
+}
 
-    auto decl = symbol->decls.front();
-    auto decl_type = decl->type;
-    assert(decl_type);
-    for (size_t i = 1; i < elems.size(); i++) {
-        if (auto trait = decl_type->isa<TraitType>()) {
-            auto& members = trait->members();
-            auto it = members.find(elems[i].id.name);
-            if (it != members.end()) {
-                // Replace Self with an unknown bound to the trait
-                auto self = ctx.type_table().unknown_type(UnknownType::Traits { trait });
-                decl_type = ctx.replace_self(it->second, self);
-                break;
-            }
-        }
-        return ctx.type_table().error_type(loc);
+const artic::Type* Path::infer(TypeInference& ctx) const {
+    assert(symbol);
+    elems[0].type = subsume(symbol->decls.front()->type, symbol_args);
+    for (size_t i = 1; i < elems.size(); ++i) {
+        elems[i].type = elems[i].infer(ctx, elems[i - 1].type);
+        if (!elems[i].type)
+            return ctx.type_table().error_type(loc);
     }
 
+    auto last_type = elems.back().type;
+
     // Remap DeBruijn indices to the correct index
-    if (auto type_var = decl_type->isa<TypeVar>()) {
+    if (auto type_var = last_type->isa<TypeVar>()) {
         auto index = var_depth - decl->var_depth - type_var->index - 1;
         return ctx.type_table().type_var(index, TypeVar::Traits(type_var->traits));
     }
 
+    // Create type arguments, if any
     type_args.resize(std::max(type_args.size(), args.size()));
     for (size_t i = 0; i < args.size(); i++)
         type_args[i] = ctx.infer(*args[i]);
 
+    // Subsume polymorphic types and wrap the value in a reference if required
     auto subsumed = ctx.subsume(loc, decl_type, type_args);
     if (auto ptrn_decl = decl->isa<PtrnDecl>())
         return ctx.type_table().ref_type(subsumed, AddrSpace(AddrSpace::Generic), ptrn_decl->mut);

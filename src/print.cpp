@@ -511,8 +511,12 @@ void StructType::print(Printer& p) const {
     }
 }
 
-void TraitType::print(Printer& p) const {
-    p << name;
+void ImplType::print(Printer& p) const {
+    p << keyword_style("impl") << '(';
+    trait->print(p);
+    p << ',';
+    self->print(p);
+    p << ')'; 
 }
 
 void TupleType::print(Printer& p) const {
@@ -551,11 +555,9 @@ void PolyType::print(Printer& p) const {
     if (p.use_names) {
         for (size_t i = 0; i < num_vars; i++) {
             p << type_var_style(p.var_name(p.depth + i));
-            if (!var_traits[i].empty()) {
+            if (!var_traits[i]->members.empty()) {
                 p << " : ";
-                print_list(p, " + ", var_traits[i], [&] (auto& trait) {
-                    trait->print(p);
-                });
+                var_traits[i]->print(p);
             }
             if (i != num_vars - 1) p << ", ";
         }
@@ -583,12 +585,26 @@ void ErrorType::print(Printer& p) const {
     p << error_style("<invalid type>");
 }
 
+log::Output& operator << (log::Output& out, const Trait& trait) {
+    Printer p(out);
+    trait.print(p);
+    return out;
+}
+
+log::Output& operator << (log::Output& out, const TraitSet& trait_set) {
+    Printer p(out);
+    trait_set.print(p);
+    return out;
+}
+
 log::Output& operator << (log::Output& out, const Type& type) {
     Printer p(out);
     type.print(p);
     return out;
 }
 
-void Type::dump() const { log::out << *this << '\n'; }
+void Trait::dump()    const { log::out << *this << '\n'; }
+void TraitSet::dump() const { log::out << *this << '\n'; }
+void Type::dump()     const { log::out << *this << '\n'; }
 
 } // namespace artic

@@ -124,16 +124,20 @@ struct Path : public Node {
     struct Elem {
         Identifier id;
 
-        mutable std::shared_ptr<Symbol> symbol;
+        mutable const artic::Type* type;
 
-        Elem() {}
-        Elem(Identifier&& id, std::shared_ptr<Symbol> symbol = nullptr)
-            : id(std::move(id)), symbol(symbol)
+        Elem(Identifier&& id)
+            : id(std::move(id)), type(nullptr)
         {}
+        Elem() : Elem(Identifier()) {}
+
+        const artic::Type* infer(TypeInference&, const artic::Type*) const;
     };
     std::vector<Elem> elems;
     PtrVector<Type> args;
 
+    mutable std::shared_ptr<Symbol> symbol;
+    mutable std::vector<const artic::Type*> symbol_args;
     mutable std::vector<const artic::Type*> type_args;
 
     Path(const Loc& loc, Identifier&& id, PtrVector<Type>&& args)
@@ -322,9 +326,6 @@ struct PathExpr : public Expr {
     PathExpr(const Loc& loc, Path&& path)
         : Expr(loc), path(std::move(path))
     {}
-
-    const Identifier& identifier() const { return path.elems.back().id; }
-    std::shared_ptr<Symbol>& symbol() const { return path.elems.back().symbol; }
 
     const artic::Type* infer(TypeInference&) const override;
     void bind(NameBinder&) const override;

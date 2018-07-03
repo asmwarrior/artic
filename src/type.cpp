@@ -36,10 +36,10 @@ size_t FnType::num_args() const {
     return 1;
 }
 
-bool TraitType::subtrait(const TraitType* super) const {
-    if (super == this || supers.count(super))
+bool Trait::subtrait(const Trait* super) const {
+    if (super == this || supers->members.count(super))
         return true;
-    return std::any_of(supers.begin(), supers.end(), [=] (auto trait) {
+    return std::any_of(supers->members.begin(), supers->members.end(), [=] (auto trait) {
         return trait->subtrait(super);
     });
 }
@@ -59,18 +59,18 @@ const StructType::Members& StructType::members(TypeTable& table) const {
     return members_;
 }
 
-const TraitType::Members& TraitType::members() const {
-    if (members_.empty()) {
-        assert(decl->type);
-        for (auto& decl : decl->decls) {
-            assert(decl->type);
-            members_.emplace(decl->id.name, decl->type);
-        }
-    }
-    return members_;
+// Hash ----------------------------------------------------------------------------
+
+uint32_t Trait::hash() const {
+    return hash_combine(
+        hash_string(decl->id.name),
+        hash_list(args, [] (auto arg) { return arg->hash(); })
+    );
 }
 
-// Hash ----------------------------------------------------------------------------
+uint32_t TraitSet::hash() const {
+    return hash_list(members, [] (auto member) { return member->hash(); });
+}
 
 uint32_t PrimType::hash() const {
     return uint32_t(tag);
@@ -80,8 +80,12 @@ uint32_t TypeApp::hash() const {
     return hash_combine(
         typeid(*this).hash_code(),
         hash_string(name),
-        hash_list(args, [] (auto& arg) { return arg->hash(); })
+        hash_list(args, [] (auto arg) { return arg->hash(); })
     );
+}
+
+uint32_t ImplType::hash() const {
+    return hash_combine(trait->hash(), self->hash());
 }
 
 uint32_t AddrType::hash() const {
@@ -94,15 +98,15 @@ uint32_t AddrType::hash() const {
 }
 
 uint32_t PolyType::hash() const {
-    return hash_combine(body()->hash(), uint32_t(num_vars));
+    return hash_combine(
+        body()->hash(),
+        uint32_t(num_vars),
+        hash_list(var_traits, [] (auto traits) { return traits->hash(); })
+    );
 }
 
 uint32_t TypeVar::hash() const {
-    return hash_combine(hash_init(), index,
-        hash_list(traits, [] (auto& t) {
-            return hash_string(t->name);
-        })
-    );
+    return hash_combine(hash_init(), index);
 }
 
 uint32_t UnknownType::hash() const {
@@ -118,6 +122,14 @@ uint32_t InferError::hash() const {
 }
 
 // Equals ----------------------------------------------------------------------------
+
+bool Trait::equals(const Trait* t) const {
+    return t->decl == decl && args == t->args;
+}
+
+bool TraitSet::equals(const TraitSet* s) const {
+    return s->members == members;
+}
 
 bool PrimType::equals(const Type* t) const {
     return t->isa<PrimType>() && t->as<PrimType>()->tag == tag;
@@ -140,6 +152,12 @@ bool TypeApp::equals(const Type* t) const {
     return false;
 }
 
+bool ImplType::equals(const Type* t) const {
+    return t->isa<ImplType>() &&
+           t->as<ImplType>()->trait == trait &&
+           t->as<ImplType>()->self == self;
+}
+
 bool AddrType::equals(const Type* t) const {
     return typeid(*this) == typeid(*t) &&
            t->as<PtrType>()->pointee() == pointee() &&
@@ -150,15 +168,14 @@ bool AddrType::equals(const Type* t) const {
 bool PolyType::equals(const Type* t) const {
     if (auto poly = t->isa<PolyType>()) {
         return poly->body() == body() &&
-               poly->num_vars == num_vars;
+               poly->num_vars == num_vars &&
+               poly->var_traits == var_traits;
     }
     return false;
 }
 
 bool TypeVar::equals(const Type* t) const {
-    return t->isa<TypeVar>() &&
-           t->as<TypeVar>()->index == index &&
-           t->as<TypeVar>()->traits == traits;
+    return t->isa<TypeVar>() && t->as<TypeVar>()->index == index;
 }
 
 bool UnknownType::equals(const Type* t) const {
@@ -178,12 +195,12 @@ bool InferError::equals(const Type* t) const {
 
 // Rebuild -------------------------------------------------------------------------
 
-const CompoundType* StructType::rebuild(TypeTable& table, Args&& new_args) const {
-    return table.struct_type(std::string(name), std::move(new_args), decl);
+const Trait* Trait::rebuild(TypeTable& table, Args&& args) const {
+    return table.trait(std::move(args), decl);
 }
 
-const CompoundType* TraitType::rebuild(TypeTable& table, Args&&) const {
-    return table.trait_type(std::string(name), decl);
+const CompoundType* StructType::rebuild(TypeTable& table, Args&& new_args) const {
+    return table.struct_type(std::string(name), std::move(new_args), decl);
 }
 
 const CompoundType* TupleType::rebuild(TypeTable& table, Args&& new_args) const {
@@ -203,7 +220,7 @@ const CompoundType* PtrType::rebuild(TypeTable& table, Args&& new_args) const {
 }
 
 const CompoundType* PolyType::rebuild(TypeTable& table, Args&& new_args) const {
-    return table.poly_type(num_vars, new_args[0])->as<PolyType>();
+    return table.poly_type(num_vars, new_args[0], PolyType::VarTraits(var_traits))->as<PolyType>();
 }
 
 // All -----------------------------------------------------------------------------
@@ -236,12 +253,35 @@ bool InferError::has(const std::function<bool (const Type*)>& pred) const {
 
 // Reduce --------------------------------------------------------------------------
 
+const Trait* Trait::reduce(TypeTable& table, size_t depth, const std::vector<const Type*>& types) const {
+    Args new_args(args.size());
+    std::transform(args.begin(), args.end(), new_args.begin(), [&] (auto arg) {
+        return arg->reduce(table, depth, types);
+    });
+    auto trait = table.trait(std::move(new_args), decl);
+    // Reduce super traits as well if possible, but only do it once
+    if (supers && !trait->supers)
+        trait->supers = supers->reduce(table, depth, types);
+    return trait;
+}
+
+const TraitSet* TraitSet::reduce(TypeTable& table, size_t depth, const std::vector<const Type*>& types) const {
+    Members new_members;
+    for (auto member : members)
+        new_members.insert(member->reduce(table, depth, types));
+    return table.trait_set(std::move(new_members));
+}
+
 const Type* CompoundType::reduce(TypeTable& table, size_t depth, const std::vector<const Type*>& types) const {
     Args new_args(args.size());
     std::transform(args.begin(), args.end(), new_args.begin(), [&] (auto arg) {
         return arg->reduce(table, depth, types);
     });
     return rebuild(table, std::move(new_args));
+}
+
+const Type* ImplType::reduce(TypeTable& table, size_t depth, const std::vector<const Type*>& types) const {
+    return table.impl_type(trait->reduce(table, depth, types), self->reduce(table, depth, types));
 }
 
 const Type* TypeVar::reduce(TypeTable& table, size_t depth, const std::vector<const Type*>& types) const {
@@ -253,14 +293,35 @@ const Type* TypeVar::reduce(TypeTable& table, size_t depth, const std::vector<co
 const Type* PolyType::reduce(TypeTable& table, size_t depth, const std::vector<const Type*>& types) const {
     if (depth == 0) {
         assert(types.size() <= num_vars);
-        auto poly = table.poly_type(num_vars - types.size(), body()->reduce(table, depth + num_vars, types));
+        auto reduced_body = body()->reduce(table, depth + num_vars, types);
+        auto reduced_traits = PolyType::VarTraits(var_traits.begin() + types.size(), var_traits.end());
+        auto poly = table.poly_type(num_vars - types.size(), reduced_body, std::move(reduced_traits));
         return poly->shift(table, depth, -types.size());
     } else {
-        return table.poly_type(num_vars, body()->reduce(table, depth + num_vars, types));
+        return table.poly_type(num_vars, body()->reduce(table, depth + num_vars, types), PolyType::VarTraits(var_traits));
     }
 }
 
 // Shift ---------------------------------------------------------------------------
+
+const Trait* Trait::shift(TypeTable& table, size_t depth, int32_t n) const {
+    Args new_args(args.size());
+    std::transform(args.begin(), args.end(), new_args.begin(), [&] (auto arg) {
+        return arg->shift(table, depth, n);
+    });
+    auto trait = table.trait(std::move(new_args), decl);
+    // Shift super traits as well if possible, but only do it once
+    if (supers && !trait->supers)
+        trait->supers = supers->shift(table, depth, n);
+    return trait;
+}
+
+const TraitSet* TraitSet::shift(TypeTable& table, size_t depth, int32_t n) const {
+    Members new_members;
+    for (auto member : members)
+        new_members.insert(member->shift(table, depth, n));
+    return table.trait_set(std::move(new_members));
+}
 
 const Type* CompoundType::shift(TypeTable& table, size_t depth, int32_t n) const {
     Args new_args(args.size());
@@ -270,13 +331,17 @@ const Type* CompoundType::shift(TypeTable& table, size_t depth, int32_t n) const
     return rebuild(table, std::move(new_args));
 }
 
+const Type* ImplType::shift(TypeTable& table, size_t depth, int32_t n) const {
+    return table.impl_type(trait->shift(table, depth, n), self->shift(table, depth, n));
+}
+
 const Type* TypeVar::shift(TypeTable& table, size_t depth, int32_t n) const {
     assert(index < depth || int32_t(index) + n >= 0);
-    return index >= depth ? table.type_var(index + n, Traits(traits)) : this;
+    return index >= depth ? table.type_var(index + n) : this;
 }
 
 const Type* PolyType::shift(TypeTable& table, size_t depth, int32_t n) const {
-    return table.poly_type(num_vars, body()->shift(table, depth + num_vars, n));
+    return table.poly_type(num_vars, body()->shift(table, depth + num_vars, n), PolyType::VarTraits(var_traits));
 }
 
 // Type table ----------------------------------------------------------------------
@@ -287,10 +352,6 @@ const PrimType* TypeTable::prim_type(PrimType::Tag tag) {
 
 const StructType* TypeTable::struct_type(std::string&& name, StructType::Args&& args, const ast::StructDecl* decl) {
     return new_type<StructType>(std::move(name), std::move(args), decl);
-}
-
-const TraitType* TypeTable::trait_type(std::string&& name, const ast::TraitDecl* decl) {
-    return new_type<TraitType>(std::move(name), decl);
 }
 
 const TupleType* TypeTable::tuple_type(TupleType::Args&& args) {
@@ -320,8 +381,8 @@ const Type* TypeTable::poly_type(size_t num_vars, const Type* body, PolyType::Va
     return new_type<PolyType>(num_vars, body, std::move(var_traits));
 }
 
-const TypeVar* TypeTable::type_var(uint32_t index, TypeVar::Traits&& traits) {
-    return new_type<TypeVar>(index, std::move(traits));
+const TypeVar* TypeTable::type_var(uint32_t index) {
+    return new_type<TypeVar>(index);
 }
 
 const ErrorType* TypeTable::error_type(const Loc& loc) {
@@ -332,8 +393,8 @@ const InferError* TypeTable::infer_error(const Loc& loc, const Type* left, const
     return new_type<InferError>(loc, left, right);
 }
 
-const UnknownType* TypeTable::unknown_type(UnknownType::Traits&& traits) {
-    unknowns_.emplace_back(new UnknownType(unknowns_.size(), std::move(traits)));
+const UnknownType* TypeTable::unknown_type(const TraitSet* trait_set) {
+    unknowns_.emplace_back(new UnknownType(unknowns_.size(), trait_set));
     return unknowns_.back();
 }
 

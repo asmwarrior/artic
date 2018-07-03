@@ -127,6 +127,64 @@ struct Type : public Cast<Type> {
     void dump() const;
 };
 
+/// A trait (or type class). Such objects are not types, but represent a constraint on types.
+struct Trait {
+    typedef std::vector<const Type*> Args;
+
+    Args args;
+    const ast::TraitDecl* decl;
+
+    mutable const class TraitSet* supers;
+
+    Trait(Args&& args, const ast::TraitDecl* decl)
+        : args(std::move(args)), decl(decl), supers(nullptr)
+    {}
+
+    /// Replaces type variables with the given set of arguments.
+    const Trait* reduce(TypeTable&, size_t, const std::vector<const Type*>&) const;
+    /// Shifts unbound type variables by the given amount.
+    const Trait* shift(TypeTable&, size_t, int32_t) const;
+
+    /// Rebuilds this trait with different type arguments.
+    const Trait* rebuild(TypeTable&, Args&&) const;
+    /// Returns true if this trait is a subtrait of another.
+    bool subtrait(const Trait*) const;
+
+    /// Computes a hash value for this trait.
+    uint32_t hash() const;
+    /// Test for structural equality with another trait.
+    bool equals(const Trait*) const;
+    /// Prints the trait with the given formatting parameters.
+    void print(Printer&) const;
+    /// Dumps the trait on the console, for debugging purposes.
+    void dump() const;
+};
+
+/// A set of traits. Such sets are constructed by the TypeTable and hashed to speed up comparisons.
+struct TraitSet {
+    typedef std::unordered_set<const Trait*> Members;
+
+    Members members;
+
+    TraitSet(Members&& members)
+        : members(std::move(members))
+    {}
+
+    /// Replaces type variables with the given set of arguments.
+    const TraitSet* reduce(TypeTable&, size_t, const std::vector<const Type*>&) const;
+    /// Shifts unbound type variables by the given amount.
+    const TraitSet* shift(TypeTable&, size_t, int32_t) const;
+
+    /// Computes a hash value for this trait set.
+    uint32_t hash() const;
+    /// Test for equality between two trait sets.
+    bool equals(const TraitSet*) const;
+    /// Prints the trait set with the given formatting parameters.
+    void print(Printer&) const;
+    /// Dumps the trait set on the console, for debugging purposes.
+    void dump() const;
+};
+
 /// Base class for types made of multiple arguments.
 struct CompoundType : public Type {
     typedef std::vector<const Type*> Args;
@@ -210,26 +268,28 @@ private:
     mutable Members members_;
 };
 
-/// A trait is a structure containing a set of operations that are valid for a type.
-struct TraitType : public TypeApp {
+/// The type of a trait implementation. Takes a trait and a the type of self as an argument.
+struct ImplType : public Type {
     typedef std::unordered_map<std::string, const Type*> Members;
 
-    const ast::TraitDecl* decl;
-    mutable std::unordered_set<const ast::ImplDecl*> impls;
-    mutable std::unordered_set<const TraitType*> supers;
+    mutable const ast::ImplDecl* impl;
 
-    TraitType(std::string&& name, const ast::TraitDecl* decl)
-        : TypeApp(std::move(name), {}), decl(decl)
+    const Trait* trait;
+    const Type*  self;
+
+    ImplType(const Trait* trait, const Type* self)
+        : trait(trait), self(self)
     {}
 
-    const CompoundType* rebuild(TypeTable&, Args&&) const override;
+    const Type* reduce(TypeTable&, size_t, const std::vector<const Type*>&) const override;
+    const Type* shift(TypeTable&, size_t, int32_t) const override;
+
+    uint32_t hash() const override;
+    bool equals(const Type*) const override;
     void print(Printer&) const override;
 
-    /// Lazily build the members of the trait.
+    /// Lazily build the members of the implementation (only based on the trait).
     const Members& members() const;
-
-    /// Returns true if this trait is a subtrait of the given trait.
-    bool subtrait(const TraitType*) const;
 
 private:
     mutable Members members_;
@@ -306,15 +366,11 @@ struct PtrType : public AddrType {
 
 /// Type variable, identifiable by its DeBruijn index.
 struct TypeVar : public Type {
-    typedef std::unordered_set<const TraitType*> Traits;
-
     /// DeBruijn index of the type variable.
     uint32_t index;
-    /// Set of traits attached to the variable.
-    Traits traits;
 
-    TypeVar(uint32_t index, Traits&& traits)
-        : index(index), traits(std::move(traits))
+    TypeVar(uint32_t index)
+        : index(index)
     {}
 
     const Type* reduce(TypeTable&, size_t, const std::vector<const Type*>&) const override;
@@ -327,15 +383,13 @@ struct TypeVar : public Type {
 
 /// Unknown type in a set of type equations.
 struct UnknownType : public Type {
-    typedef std::unordered_set<const TraitType*> Traits;
-
     /// Number that will be displayed when printing this type.
     uint32_t number;
     /// Set of traits attached to this unknown. Can be modified during type inference.
-    mutable Traits traits;
+    mutable const TraitSet* traits;
 
-    UnknownType(uint32_t number, Traits&& traits)
-        : number(number), traits(std::move(traits))
+    UnknownType(uint32_t number, const TraitSet* traits)
+        : number(number), traits(traits)
     {}
 
     uint32_t hash() const override;
@@ -345,7 +399,7 @@ struct UnknownType : public Type {
 
 /// Polymorphic type with possibly several variables and a set of constraints.
 struct PolyType : public CompoundType {
-    typedef std::vector<TypeVar::Traits> VarTraits;
+    typedef std::vector<const TraitSet*> VarTraits;
 
     /// Number of type variables in this polymorphic type.
     size_t num_vars;
@@ -398,45 +452,61 @@ struct InferError : public ErrorType {
 /// Table containing all types. Types are hashed so that comparison of types can be done with pointer equality.
 class TypeTable {
 private:
-    struct HashType {
-        size_t operator () (const Type* t) const {
+    template <typename T>
+    struct Hash {
+        size_t operator() (const T* t) const {
             return size_t(t->hash());
         }
     };
 
-    struct CmpType {
-        bool operator () (const Type* a, const Type* b) const {
+    template <typename T>
+    struct Cmp {
+        bool operator () (const T* a, const T* b) const {
             return a->equals(b);
         }
     };
 
-    typedef std::unordered_set<const Type*, HashType, CmpType> TypeSet;
+    typedef std::unordered_set<const Type*,     Hash<Type>,     Cmp<Type>>     Types;
+    typedef std::unordered_set<const TraitSet*, Hash<TraitSet>, Cmp<TraitSet>> TraitSets;
+    typedef std::vector<const UnknownType*> Unknowns;
 
 public:
     TypeTable() : unknowns_(0) {}
     TypeTable(const TypeTable&) = delete;
 
     ~TypeTable() {
-        for (auto& t : types_) delete t;
-        for (auto& u : unknowns_) delete u;
+        for (auto t : trait_sets_)   delete t;
+        for (auto t : types_)    delete t;
+        for (auto u : unknowns_) delete u;
     }
 
     const PrimType*     prim_type(PrimType::Tag);
     const StructType*   struct_type(std::string&&, StructType::Args&&, const ast::StructDecl*);
-    const TraitType*    trait_type(std::string&&, const ast::TraitDecl*);
+    const ImplType*    impl_type(const Trait*, const Type*);
     const TupleType*    tuple_type(TupleType::Args&&);
     const TupleType*    unit_type();
     const FnType*       fn_type(const Type*, const Type*);
     const RefType*      ref_type(const Type*, AddrSpace, bool);
     const PtrType*      ptr_type(const Type*, AddrSpace, bool);
-    const Type*         poly_type(size_t, const Type*, PolyType::VarTraits&& var_traits);
-    const TypeVar*      type_var(uint32_t, TypeVar::Traits&& traits);
+    const Type*         poly_type(size_t, const Type*, PolyType::VarTraits&&);
+    const TypeVar*      type_var(uint32_t);
     const ErrorType*    error_type(const Loc&);
     const InferError*   infer_error(const Loc&, const Type*, const Type*);
-    const UnknownType*  unknown_type(UnknownType::Traits&& traits);
+    const UnknownType*  unknown_type(const TraitSet*);
 
-    const TypeSet& types() const { return types_; }
-    const std::vector<const UnknownType*>& unknowns() const { return unknowns_; }
+    const Trait* trait(Trait::Args&&, const ast::TraitDecl*);
+
+    const TraitSet* trait_set(TraitSet::Members&&);
+    const TraitSet* trait_set(const TraitSet* a, const TraitSet* b) {
+        TraitSet::Members u;
+        u.insert(a->members.begin(), a->members.end());
+        u.insert(b->members.begin(), b->members.end());
+        return trait_set(std::move(u));
+    }
+
+    const TraitSets& trait_sets() const { return trait_sets_; }
+    const Types& types() const { return types_; }
+    const Unknowns& unknowns() const { return unknowns_; }
 
 private:
     template <typename T, typename... Args>
@@ -452,8 +522,9 @@ private:
         return ptr;
     }
 
-    TypeSet types_;
-    std::vector<const UnknownType*> unknowns_;
+    Types     types_;
+    TraitSets trait_sets_;
+    Unknowns  unknowns_;
 };
 
 } // namespace artic

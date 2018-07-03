@@ -15,7 +15,7 @@ add_library(libartic
     cast.h
     check.cpp
     check.h
-    infer.cpp
+    #infer.cpp
     infer.h
     lexer.cpp
     lexer.h
