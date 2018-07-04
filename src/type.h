@@ -127,37 +127,23 @@ struct Type : public Cast<Type> {
     void dump() const;
 };
 
-/// A trait (or type class). Such objects are not types themselves, but instead represent a constraint on types.
-struct Trait {
-    typedef std::vector<const Type*> Args;
+/// A trait type.
+struct TraitType : public TypeApp {
+    using TypeApp::Args;
 
-    Args args;
     const ast::TraitDecl* decl;
-
     mutable const class TraitSet* supers;
 
-    Trait(Args&& args, const ast::TraitDecl* decl)
-        : args(std::move(args)), decl(decl), supers(nullptr)
-    {}
+    Trait(Args&&, const ast::TraitDecl*);
 
-    /// Replaces type variables with the given set of arguments.
-    const Trait* reduce(TypeTable&, size_t, const std::vector<const Type*>&) const;
-    /// Shifts unbound type variables by the given amount.
-    const Trait* shift(TypeTable&, size_t, int32_t) const;
-
-    /// Rebuilds this trait with different type arguments.
-    const Trait* rebuild(TypeTable&, Args&&) const;
-    /// Returns true if this trait is a subtrait of another.
     bool subtrait(const Trait*) const;
 
-    /// Computes a hash value for this trait.
-    uint32_t hash() const;
-    /// Test for structural equality with another trait.
-    bool equals(const Trait*) const;
-    /// Prints the trait with the given formatting parameters.
-    void print(Printer&) const;
-    /// Dumps the trait on the console, for debugging purposes.
-    void dump() const;
+    const Trait* reduce(TypeTable&, size_t, const std::vector<const Type*>&) const;
+    const Trait* shift(TypeTable&, size_t, int32_t) const;
+    
+    const CompoundType* rebuild(TypeTable&, Args&&) const override;
+   
+    void print(Printer&) const override;
 };
 
 /// A set of traits. Such sets are constructed by the TypeTable and hashed to speed up comparisons.
@@ -254,9 +240,7 @@ struct StructType : public TypeApp {
 
     const ast::StructDecl* decl;
 
-    StructType(std::string&& name, Args&& args, const ast::StructDecl* decl)
-        : TypeApp(std::move(name), std::move(args)), decl(decl)
-    {}
+    StructType(Args&&, const ast::StructDecl*);
 
     const CompoundType* rebuild(TypeTable&, Args&&) const override;
     void print(Printer&) const override;
@@ -289,7 +273,7 @@ struct ImplType : public Type {
     void print(Printer&) const override;
 
     /// Lazily build the members of the implementation (only based on the trait).
-    const Members& members() const;
+    const Members& members(TypeTable&) const;
 
 private:
     mutable Members members_;

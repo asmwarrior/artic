@@ -85,7 +85,7 @@ const Type* TypeInference::join(const Loc& loc, const UnknownType* unknown_a, co
 
     // Propagate trait constraints from one unknown to another
     if (auto unknown_b = b->isa<UnknownType>())
-        unknown_b->traits.insert(unknown_a->traits.begin(), unknown_a->traits.end());
+        unknown_b->traits = type_table().trait_set(unknown_b->traits, unknown_a->traits);
     return b;
 }
 
@@ -110,7 +110,7 @@ const Type* TypeInference::subsume(const Loc& loc, const Type* type, std::vector
         // Replaces the type variables in the given type by unknowns
         for (size_t i = 0; i < poly->num_vars; ++i) {
             if (!type_args[i])
-                type_args[i] = type_table().unknown_type(UnknownType::Traits(poly->var_traits[i]));
+                type_args[i] = type_table().unknown_type(poly->var_traits[i]);
         }
 
         return poly->reduce(type_table(), 0, type_args);
@@ -118,9 +118,9 @@ const Type* TypeInference::subsume(const Loc& loc, const Type* type, std::vector
     return type;
 }
 
-const Type* TypeInference::type(const ast::Node& node, UnknownType::Traits&& traits) {
+const Type* TypeInference::type(const ast::Node& node, const TraitSet* trait_set) {
     if (!node.type)
-        node.type = type_table().unknown_type(std::move(traits));
+        node.type = type_table().unknown_type(trait_set);
     return find(node.type);
 }
 
@@ -163,8 +163,8 @@ const artic::Type* infer_struct(TypeInference& ctx, const Loc& loc, const artic:
 
 const artic::Type* Path::Elem::infer(TypeInference& ctx, const artic::Type* prev_type) const {
     assert(prev_type);
-    if (auto trait_type = prev_type->isa<TraitType>()) {
-        auto& members = trait_type->members(ctx.type_table());
+    if (auto impl_type = prev_type->isa<ImplType>()) {
+        auto& members = impl_type->members(ctx.type_table());
         auto it = members.find(id.name);
         if (it != members.end())
             return it->second;
@@ -174,7 +174,8 @@ const artic::Type* Path::Elem::infer(TypeInference& ctx, const artic::Type* prev
 
 const artic::Type* Path::infer(TypeInference& ctx) const {
     assert(symbol);
-    elems[0].type = subsume(symbol->decls.front()->type, symbol_args);
+    auto decl = symbol->decls.front();
+    elems[0].type = ctx.subsume(loc, decl->type, symbol_args);
     for (size_t i = 1; i < elems.size(); ++i) {
         elems[i].type = elems[i].infer(ctx, elems[i - 1].type);
         if (!elems[i].type)
@@ -186,7 +187,7 @@ const artic::Type* Path::infer(TypeInference& ctx) const {
     // Remap DeBruijn indices to the correct index
     if (auto type_var = last_type->isa<TypeVar>()) {
         auto index = var_depth - decl->var_depth - type_var->index - 1;
-        return ctx.type_table().type_var(index, TypeVar::Traits(type_var->traits));
+        return ctx.type_table().type_var(index);
     }
 
     // Create type arguments, if any
@@ -195,7 +196,7 @@ const artic::Type* Path::infer(TypeInference& ctx) const {
         type_args[i] = ctx.infer(*args[i]);
 
     // Subsume polymorphic types and wrap the value in a reference if required
-    auto subsumed = ctx.subsume(loc, decl_type, type_args);
+    auto subsumed = ctx.subsume(loc, last_type, type_args);
     if (auto ptrn_decl = decl->isa<PtrnDecl>())
         return ctx.type_table().ref_type(subsumed, AddrSpace(AddrSpace::Generic), ptrn_decl->mut);
     return subsumed;
@@ -226,7 +227,7 @@ const artic::Type* PtrType::infer(TypeInference& ctx) const {
 }
 
 const artic::Type* SelfType::infer(TypeInference& ctx) const {
-    return ctx.type_table().self_type();
+    return ctx.type_table().type_var(0);
 }
 
 const artic::Type* ErrorType::infer(TypeInference& ctx) const {
@@ -252,7 +253,7 @@ const artic::Type* PathExpr::infer(TypeInference& ctx) const {
 const artic::Type* LiteralExpr::infer(TypeInference& ctx) const {
     if (lit.is_bool())
         return ctx.type_table().prim_type(artic::PrimType::I1);
-    return ctx.type(*this, { ctx.type_table().trait_type("Num", nullptr) });
+    return ctx.type(*this, ctx.type_table.trait_set({ ctx.num_trait() }));
 }
 
 const artic::Type* FieldExpr::infer(TypeInference& ctx) const {
@@ -489,20 +490,8 @@ const artic::Type* ImplDecl::infer(TypeInference& ctx) const {
         ctx.infer_head(*decl);
 
     auto impl_type = ctx.infer(*type);
-    for (auto& decl : decls) {
-        const artic::Type* member_type = nullptr;
-
-        // Instantiate the trait with the given type to get the
-        // expected signature of implemented functions
-        if (auto trait_type = ctx.infer(*trait)->isa<TraitType>()) {
-            auto& members = trait_type->members();
-            auto it = members.find(decl->id.name);
-            if (it != members.end())
-                member_type = ctx.replace_self(it->second, impl_type);
-        }
-
-        ctx.infer(*decl, member_type);
-    }
+    for (auto& decl : decls)
+        ctx.infer(*decl);
     return ctx.type(*this);
 }
 

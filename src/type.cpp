@@ -63,7 +63,7 @@ const StructType::Members& StructType::members(TypeTable& table) const {
 
 uint32_t Trait::hash() const {
     return hash_combine(
-        hash_string(decl->id.name),
+        hash_string(name),
         hash_list(args, [] (auto arg) { return arg->hash(); })
     );
 }
@@ -124,7 +124,7 @@ uint32_t InferError::hash() const {
 // Equals ----------------------------------------------------------------------------
 
 bool Trait::equals(const Trait* t) const {
-    return t->decl == decl && args == t->args;
+    return t->name == name && args == t->args;
 }
 
 bool TraitSet::equals(const TraitSet* s) const {
