@@ -398,4 +398,12 @@ const UnknownType* TypeTable::unknown_type(const TraitSet* trait_set) {
     return unknowns_.back();
 }
 
+const Trait* TypeTable::trait(Trait::Args&& args, const ast::TraitDecl* decl) {
+    return new_object<Trait>(traits_, std::move(args), decl);
+}
+
+const TraitSet* TypeTable::trait_set(TraitSet::Members&& members) {
+    return new_object<TraitSet>(trait_sets_, std::move(members));
+}
+
 } // namespace artic

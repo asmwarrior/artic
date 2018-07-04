@@ -127,7 +127,7 @@ struct Type : public Cast<Type> {
     void dump() const;
 };
 
-/// A trait (or type class). Such objects are not types, but represent a constraint on types.
+/// A trait (or type class). Such objects are not types themselves, but instead represent a constraint on types.
 struct Trait {
     typedef std::vector<const Type*> Args;
 
@@ -466,23 +466,25 @@ private:
         }
     };
 
+public:
     typedef std::unordered_set<const Type*,     Hash<Type>,     Cmp<Type>>     Types;
+    typedef std::unordered_set<const Trait*,    Hash<Trait>,    Cmp<Trait>>    Traits;
     typedef std::unordered_set<const TraitSet*, Hash<TraitSet>, Cmp<TraitSet>> TraitSets;
     typedef std::vector<const UnknownType*> Unknowns;
 
-public:
     TypeTable() : unknowns_(0) {}
     TypeTable(const TypeTable&) = delete;
 
     ~TypeTable() {
-        for (auto t : trait_sets_)   delete t;
-        for (auto t : types_)    delete t;
-        for (auto u : unknowns_) delete u;
+        for (auto t : types_)      delete t;
+        for (auto t : traits_)     delete t;
+        for (auto t : trait_sets_) delete t;
+        for (auto u : unknowns_)   delete u;
     }
 
     const PrimType*     prim_type(PrimType::Tag);
     const StructType*   struct_type(std::string&&, StructType::Args&&, const ast::StructDecl*);
-    const ImplType*    impl_type(const Trait*, const Type*);
+    const ImplType*     impl_type(const Trait*, const Type*);
     const TupleType*    tuple_type(TupleType::Args&&);
     const TupleType*    unit_type();
     const FnType*       fn_type(const Type*, const Type*);
@@ -504,25 +506,32 @@ public:
         return trait_set(std::move(u));
     }
 
-    const TraitSets& trait_sets() const { return trait_sets_; }
     const Types& types() const { return types_; }
+    const Traits& traits() const { return traits_; }
+    const TraitSets& trait_sets() const { return trait_sets_; }
     const Unknowns& unknowns() const { return unknowns_; }
 
 private:
-    template <typename T, typename... Args>
-    const T* new_type(Args... args) {
+    template <typename T, typename Set, typename... Args>
+    const T* new_object(Set& set, Args... args) {
         T t(std::forward<Args>(args)...);
-        auto it = types_.find(&t);
-        if (it != types_.end()) {
+        auto it = set.find(&t);
+        if (it != set.end()) {
             assert(t.equals(*it));
-            return (*it)->template as<T>();
+            return static_cast<const T*>(*it);
         }
         const T* ptr = new T(std::move(t));
-        types_.emplace(ptr);
+        set.emplace(ptr);
         return ptr;
     }
 
+    template <typename T, typename... Args>
+    const T* new_type(Args... args) {
+        return new_object<T>(types_, std::forward<Args>(args)...);
+    }
+
     Types     types_;
+    Traits    traits_;
     TraitSets trait_sets_;
     Unknowns  unknowns_;
 };
